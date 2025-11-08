@@ -5,10 +5,10 @@ edition = "2021"
 default-run = "from-the-hart-storage" 
 
 [dependencies]
-axum = "0.7"
+axum = "0.8.6"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace"] }
-lambda_http = "0.13"
+lambda_http = "0.17.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 config = "0.15"
