@@ -13,7 +13,10 @@ dotenvy = "0.15"
 log = "0.4"
 env_logger = "0.11.8"
 lambda-web = { version = "0.2.1", features=["actix4"] }
-tokio = "1.48.0"
+
+[lib]
+name = "from_the_hart_storage"
+path = "src/lib.rs"
 
 [[bin]]
 name = "from-the-hart-storage"

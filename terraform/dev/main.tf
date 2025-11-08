@@ -25,6 +25,15 @@ resource "aws_lambda_function" "from_the_hart_storage_lambda_function" {
   memory_size   = 512
   timeout       = 90
   role          = data.terraform_remote_state.shared.outputs.from_the_hart_lambda_role_arn
+
+  architectures = ["x86_64"]
+
+  environment {
+    variables = {
+      ENVIRONMENT = "dev"
+      RUST_LOG    = "info"
+    }
+  }
 }
 
 resource "aws_lambda_function_url" "from_the_hart_storage_function_url" {

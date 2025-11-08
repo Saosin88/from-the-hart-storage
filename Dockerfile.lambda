@@ -20,16 +20,6 @@ WORKDIR /var/task
 
 COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/bootstrap ./bootstrap
 
-ARG ENVIRONMENT=prod
-ARG APP_SERVER_HOST=0.0.0.0
-ARG APP_SERVER_PORT=8080
-ARG RUST_LOG=info
-
-ENV ENVIRONMENT=$ENVIRONMENT
-ENV APP_SERVER_HOST=$APP_SERVER_HOST
-ENV APP_SERVER_PORT=$APP_SERVER_PORT
-ENV RUST_LOG=$RUST_LOG
-
 RUN chmod +x ./bootstrap
 
-ENTRYPOINT ["sh", "-c", "echo 'Starting Lambda Bootstrap...' && ./bootstrap"]
+CMD [ "./bootstrap" ]
