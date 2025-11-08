@@ -1,0 +1,31 @@
+[package]
+name = "from-the-hart-storage"
+version = "0.1.0"
+edition = "2024"
+default-run = "from-the-hart-storage" 
+
+[dependencies]
+actix-web = "4.9"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+config = "0.15.18"
+dotenvy = "0.15"
+log = "0.4"
+env_logger = "0.11.8"
+lambda-web = { version = "0.2.1", features=["actix4"] }
+tokio = "1.48.0"
+
+[[bin]]
+name = "from-the-hart-storage"
+path = "src/main.rs"
+
+[[bin]]
+name = "bootstrap"
+path = "src/lambda.rs"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
