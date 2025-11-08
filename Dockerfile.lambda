@@ -1,24 +1,26 @@
-FROM rust:1.91-slim AS builder
+FROM amazonlinux:2 AS builder
 
-RUN apt-get update && apt-get install -y musl-tools
-RUN rustup target add x86_64-unknown-linux-musl
+RUN yum update -y && \
+    yum install -y gcc openssl-devel && \
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
 
 WORKDIR /app
 
 #create dependency layer to cache
 COPY Cargo.toml Cargo.lock ./
 RUN mkdir src && echo "fn main() {}" > src/lambda.rs
-RUN cargo build --release --bin bootstrap --target x86_64-unknown-linux-musl || true
+RUN cargo build --release --bin bootstrap || true
 
 COPY src ./src
-RUN cargo build --release --bin bootstrap --target x86_64-unknown-linux-musl
-RUN strip /app/target/x86_64-unknown-linux-musl/release/bootstrap
+RUN cargo build --release --bin bootstrap
+RUN strip /app/target/release/bootstrap
 
 FROM public.ecr.aws/lambda/provided:al2
 
 WORKDIR /var/task
 
-COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/bootstrap ./bootstrap
+COPY --from=builder /app/target/release/bootstrap ./bootstrap
 
 RUN chmod +x ./bootstrap
 
