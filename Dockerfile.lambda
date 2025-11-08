@@ -16,7 +16,7 @@ RUN strip /app/target/x86_64-unknown-linux-musl/release/bootstrap
 
 FROM public.ecr.aws/lambda/provided:al2
 
-WORKDIR /var/task
+WORKDIR ${LAMBDA_RUNTIME_DIR}
 
 COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/bootstrap ./bootstrap
 
@@ -32,4 +32,4 @@ ENV RUST_LOG=$RUST_LOG
 
 RUN chmod +x ./bootstrap
 
-CMD [ "./bootstrap" ]
+CMD [ "bootstrap" ]
