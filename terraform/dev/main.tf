@@ -1,5 +1,5 @@
 module "from_the_hart_storage" {
-  source = "./modules/s3_cloudfront_secure_storage"
+  source = "../modules/s3_cloudfront_secure_storage"
 
   domain_name                        = "dev-storage.fromthehart.tech"
   acm_certificate_arn                = aws_acm_certificate.certificate.arn
