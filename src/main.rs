@@ -4,11 +4,12 @@ mod models;
 mod routes;
 mod services;
 
-use actix_web::{App, HttpServer, middleware};
 use log::info;
+use tokio::net::TcpListener;
+use tower_http::trace::TraceLayer;
 
-#[actix_web::main]
-async fn main() -> std::io::Result<()> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let environment = std::env::var("APP_ENVIRONMENT").ok();
 
     if environment.as_deref() != Some("local") {
@@ -19,23 +20,21 @@ async fn main() -> std::io::Result<()> {
     env_logger::init();
     config::init_config();
 
-    let app = move || {
-        App::new()
-            .wrap(middleware::Logger::default())
-            .configure(routes::configure_routes)
-    };
+    let app = routes::configure_routes().layer(TraceLayer::new_for_http());
 
     let server_config = config::config().server.as_ref().expect(
         "Server configuration (APP_SERVER_HOST, APP_SERVER_PORT) is required for local execution",
     );
 
-    let bind_address = (server_config.host.as_str(), server_config.port);
+    let bind_address = format!("{}:{}", server_config.host, server_config.port);
     info!(
-        "From The Hart Storage starting on http://{}:{} [environment: {}]",
-        server_config.host,
-        server_config.port,
+        "From The Hart Storage starting on http://{} [environment: {}]",
+        bind_address,
         config::config().environment
     );
 
-    HttpServer::new(app).bind(bind_address)?.run().await
+    let listener = TcpListener::bind(&bind_address).await?;
+    axum::serve(listener, app).await?;
+
+    Ok(())
 }

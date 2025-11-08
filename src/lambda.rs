@@ -1,10 +1,10 @@
-use actix_web::{App, middleware};
-use from_the_hart_storage::{config, routes, services}; // Import from your lib
-use lambda_web::{LambdaError, run_actix_on_lambda};
+use from_the_hart_storage::{config, routes, services};
+use lambda_http::{run, Error};
 use log::info;
+use tower_http::trace::TraceLayer;
 
-#[actix_web::main]
-async fn main() -> Result<(), LambdaError> {
+#[tokio::main]
+async fn main() -> Result<(), Error> {
     services::init_start_time();
     env_logger::init();
     config::init_config();
@@ -14,14 +14,7 @@ async fn main() -> Result<(), LambdaError> {
         config::config().environment
     );
 
-    let app = move || {
-        App::new()
-            .wrap(middleware::Logger::default())
-            .configure(routes::configure_routes)
-    };
+    let app = routes::configure_routes().layer(TraceLayer::new_for_http());
 
-    // This function adapts the Actix App to the Lambda runtime
-    run_actix_on_lambda(app).await?;
-
-    Ok(())
+    run(app).await
 }

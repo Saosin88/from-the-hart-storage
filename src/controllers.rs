@@ -1,7 +1,7 @@
 use crate::services;
-use actix_web::{HttpResponse, Responder};
+use axum::{http::StatusCode, response::IntoResponse, Json};
 
-pub async fn health() -> impl Responder {
+pub async fn health() -> impl IntoResponse {
     let health_status = services::get_health_status();
-    HttpResponse::Ok().json(health_status)
+    (StatusCode::OK, Json(health_status))
 }
