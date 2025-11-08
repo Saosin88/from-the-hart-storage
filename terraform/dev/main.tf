@@ -2,7 +2,7 @@ module "from_the_hart_storage" {
   source = "../modules/s3_cloudfront_secure_storage"
 
   domain_name                        = "dev-storage.fromthehart.tech"
-  acm_certificate_arn                = aws_acm_certificate.certificate.arn
+  acm_certificate_arn                = data.terraform_remote_state.shared.outputs.acm_certificate_arn
   ssm_parameter_name_for_private_key = "/from-the-hart-tech-storage/dev/cloudfront-private-key"
 
   tags = {
