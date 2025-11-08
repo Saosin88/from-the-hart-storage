@@ -32,4 +32,4 @@ ENV RUST_LOG=$RUST_LOG
 
 RUN chmod +x ./bootstrap
 
-ENTRYPOINT [ "./bootstrap" ]
+CMD [ "./bootstrap" ]
