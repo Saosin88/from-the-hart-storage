@@ -1,7 +1,7 @@
 [package]
 name = "from-the-hart-storage"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 default-run = "from-the-hart-storage" 
 
 [dependencies]
@@ -13,6 +13,8 @@ dotenvy = "0.15"
 log = "0.4"
 env_logger = "0.11.8"
 lambda-web = { version = "0.2.1", features=["actix4"] }
+tokio = "1.48.0"
+once_cell = "1.19.0"
 
 [lib]
 name = "from_the_hart_storage"

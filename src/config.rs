@@ -1,47 +1,37 @@
+use config::{Config, ConfigError, Environment};
+use once_cell::sync::Lazy;
 use serde::Deserialize;
-use std::sync::OnceLock;
 
-#[allow(dead_code)]
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize)]
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
 }
 
-#[allow(dead_code)]
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize)]
 pub struct AppConfig {
-    #[serde(skip)]
     pub environment: String,
-    pub server: ServerConfig,
+    #[serde(default)]
+    pub server: Option<ServerConfig>,
 }
 
 impl AppConfig {
-    pub fn load() -> Result<Self, String> {
-        let environment = std::env::var("ENVIRONMENT")
-            .map_err(|_| "ENVIRONMENT variable is required but not set".to_string())?;
+    fn load() -> Result<Self, ConfigError> {
+        let builder = Config::builder().add_source(Environment::with_prefix("APP").separator("_"));
 
-        let config = config::Config::builder()
-            .add_source(config::Environment::with_prefix("APP").separator("_"))
-            .build()
-            .map_err(|e| format!("Failed to build configuration: {}", e))?;
-
-        let mut app_config: AppConfig = config
-            .try_deserialize()
-            .map_err(|e| format!("Failed to deserialize configuration: {}. Required variables: APP_SERVER_HOST, APP_SERVER_PORT", e))?;
-
-        app_config.environment = environment;
-
-        Ok(app_config)
+        let settings = builder.build()?;
+        settings.try_deserialize()
     }
 }
 
-pub static CONFIG: OnceLock<AppConfig> = OnceLock::new();
+static CONFIG: Lazy<AppConfig> = Lazy::new(|| {
+    AppConfig::load().expect("Failed to load configuration. Check environment variables.")
+});
 
 pub fn init_config() {
-    CONFIG.get_or_init(|| AppConfig::load().expect("Failed to load AppConfig"));
+    Lazy::force(&CONFIG);
 }
 
 pub fn config() -> &'static AppConfig {
-    CONFIG.get().expect("Config not initialized")
+    &CONFIG
 }

@@ -30,8 +30,8 @@ resource "aws_lambda_function" "from_the_hart_storage_lambda_function" {
 
   environment {
     variables = {
-      ENVIRONMENT = "dev"
-      RUST_LOG    = "info"
+      APP_ENVIRONMENT = "dev"
+      RUST_LOG        = "info"
     }
   }
 }

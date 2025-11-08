@@ -677,8 +677,10 @@ dependencies = [
  "env_logger",
  "lambda-web",
  "log",
+ "once_cell",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

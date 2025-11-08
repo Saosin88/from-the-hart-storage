@@ -39,7 +39,7 @@ jobs:
           tags: |
             ${{ secrets.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY }}:dev-${{ github.run_number }}
           build-args: |
-            ENVIRONMENT=dev
+            APP_ENVIRONMENT=dev
           cache-from: type=gha,scope=${{ github.ref }}
           cache-to: type=gha,scope=${{ github.ref }},mode=max
           provenance: false
