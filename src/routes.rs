@@ -1,9 +1,56 @@
 use crate::controllers;
-use axum::{routing::get, Router};
+use aide::{
+    axum::{routing::get_with, ApiRouter},
+    openapi::OpenApi,
+    swagger::Swagger,
+    transform::TransformOpenApi,
+};
+use axum::{response::IntoResponse, Extension, Json, Router};
+use tower_http::cors::{Any, CorsLayer};
+
+fn create_api_docs(api: TransformOpenApi) -> TransformOpenApi {
+    api.title("From The Hart Storage API")
+        .version("1.0.0")
+        .summary("Secure cloud storage API for From The Hart platform")
+        .description(
+            "Provides endpoints for file storage, retrieval, and management with secure access controls.",
+        )
+}
 
 pub fn configure_routes() -> Router {
-    Router::new().nest(
-        "/storage",
-        Router::new().route("/health", get(controllers::health)),
-    )
+    let mut api = OpenApi::default();
+
+    // Configure CORS to allow Swagger UI to make requests
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
+    let storage_router = ApiRouter::new()
+        .api_route(
+            "/health",
+            get_with(controllers::health, controllers::health_docs),
+        )
+        .route(
+            "/openapi.json",
+            get_with(
+                |Extension(api): Extension<OpenApi>| async move { Json(api).into_response() },
+                |op| {
+                    op.description("Get OpenAPI specification for Storage API")
+                        .tag("OpenAPI")
+                },
+            ),
+        )
+        .route(
+            "/documentation",
+            Swagger::new("/storage/openapi.json")
+                .with_title("From The Hart Storage API")
+                .axum_route(),
+        );
+
+    ApiRouter::new()
+        .nest("/storage", storage_router)
+        .finish_api_with(&mut api, create_api_docs)
+        .layer(Extension(api))
+        .layer(cors)
 }
