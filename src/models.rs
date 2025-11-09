@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[schemars(description = "Health check data containing service status and uptime information")]
 pub struct HealthData {
-    #[schemars(description = "Current status of the service (e.g., 'ok', 'degraded', 'unhealthy')")]
+    #[schemars(
+        description = "Current status of the service (e.g., 'ok', 'degraded', 'unhealthy')"
+    )]
     pub status: String,
     #[schemars(description = "Service uptime in seconds")]
     pub uptime: u64,

@@ -24,24 +24,17 @@ pub fn init_start_time() {
 
 pub fn get_health_status() -> Result<HealthResponse, HealthError> {
     let now = SystemTime::now();
-    
-    // Get start time - if not initialized, this could indicate a problem
-    let start_time = START_TIME.get().ok_or_else(|| {
-        HealthError::TimeError("Service start time not initialized".to_string())
-    })?;
-    
-    // Calculate uptime - errors here indicate time issues
+    let start_time = START_TIME
+        .get()
+        .ok_or_else(|| HealthError::TimeError("Service start time not initialized".to_string()))?;
     let uptime = start_time
         .elapsed()
         .map_err(|e| HealthError::TimeError(format!("Failed to calculate uptime: {}", e)))?
         .as_secs();
-
-    // Get current timestamp
     let timestamp = now
         .duration_since(UNIX_EPOCH)
         .map_err(|e| HealthError::TimeError(format!("Failed to get timestamp: {}", e)))?
         .as_millis();
-
     Ok(HealthResponse {
         data: HealthData {
             status: "ok".to_string(),

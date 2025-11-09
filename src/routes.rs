@@ -31,13 +31,10 @@ fn create_api_docs(api: TransformOpenApi) -> TransformOpenApi {
 
 pub fn configure_routes() -> Router {
     let mut api = OpenApi::default();
-
-    // Configure CORS to allow Swagger UI to make requests
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any);
-
     let storage_router = ApiRouter::new()
         .api_route(
             "/health",
@@ -67,7 +64,6 @@ pub fn configure_routes() -> Router {
                 .with_title("From The Hart Storage API")
                 .axum_route(),
         );
-
     ApiRouter::new()
         .nest("/storage", storage_router)
         .finish_api_with(&mut api, create_api_docs)
