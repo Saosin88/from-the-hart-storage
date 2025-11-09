@@ -13,7 +13,19 @@ fn create_api_docs(api: TransformOpenApi) -> TransformOpenApi {
         .version("1.0.0")
         .summary("Secure cloud storage API for From The Hart platform")
         .description(
-            "Provides endpoints for file storage, retrieval, and management with secure access controls.",
+            "Provides endpoints for file storage, retrieval, and management with secure access controls.\n\n\
+            ## Features\n\
+            - Health monitoring and status checks\n\
+            - RESTful API design\n\
+            - Comprehensive error handling\n\
+            - OpenAPI 3.0 specification\n\n\
+            ## Response Codes\n\
+            The API uses standard HTTP response codes:\n\
+            - 2xx: Success\n\
+            - 4xx: Client errors\n\
+            - 5xx: Server errors\n\n\
+            ## Support\n\
+            For issues or questions, please refer to the project documentation.",
         )
 }
 
@@ -36,8 +48,16 @@ pub fn configure_routes() -> Router {
             get_with(
                 |Extension(api): Extension<OpenApi>| async move { Json(api).into_response() },
                 |op| {
-                    op.description("Get OpenAPI specification for Storage API")
-                        .tag("OpenAPI")
+                    op.description(
+                        "Returns the complete OpenAPI 3.0 specification for this API in JSON format.\n\n\
+                        This endpoint provides machine-readable API documentation that can be used by:\n\
+                        - API clients and SDKs\n\
+                        - Documentation generators\n\
+                        - Testing tools\n\
+                        - Development tools and IDEs",
+                    )
+                    .summary("Get OpenAPI specification")
+                    .tag("Documentation")
                 },
             ),
         )
