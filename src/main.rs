@@ -4,9 +4,9 @@ mod models;
 mod routes;
 mod services;
 
-use log::info;
 use tokio::net::TcpListener;
 use tower_http::trace::TraceLayer;
+use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -17,7 +17,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     services::init_start_time();
-    env_logger::init();
+    
+    // Initialize tracing with error layer for better error context
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+    
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer())
+        .with(tracing_subscriber::EnvFilter::from_default_env()
+            .add_directive(tracing::Level::INFO.into()))
+        .with(tracing_error::ErrorLayer::default())
+        .init();
+    
     config::init_config();
 
     let app = routes::configure_routes().layer(TraceLayer::new_for_http());
@@ -28,9 +39,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let bind_address = format!("{}:{}", server_config.host, server_config.port);
     info!(
-        "From The Hart Storage starting on http://{} [environment: {}]",
-        bind_address,
-        config::config().environment
+        bind_address = %bind_address,
+        environment = %config::config().environment,
+        "From The Hart Storage starting"
     );
 
     let listener = TcpListener::bind(&bind_address).await?;
