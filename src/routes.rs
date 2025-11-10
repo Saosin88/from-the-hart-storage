@@ -1,4 +1,4 @@
-use crate::controllers;
+use crate::handlers;
 use aide::{
     axum::{routing::get_with, ApiRouter},
     openapi::OpenApi,
@@ -33,7 +33,7 @@ pub fn configure_routes() -> Router {
     let storage_router = ApiRouter::new()
         .api_route(
             "/health",
-            get_with(controllers::health, controllers::health_docs),
+            get_with(handlers::health::health, handlers::health::health_docs),
         )
         .route(
             "/openapi.json",
