@@ -1,9 +1,11 @@
 mod config;
-mod controllers;
+mod handlers;
 mod logging;
 mod models;
+mod repository;
 mod routes;
-mod services;
+mod service;
+mod utils;
 
 use tokio::net::TcpListener;
 use tokio::signal;
@@ -12,12 +14,12 @@ use tracing::{info, warn};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    services::init_start_time();
+    service::health::init_start_time();
     config::init_config();
     logging::init_logging();
 
     let app = routes::configure_routes().layer(TraceLayer::new_for_http());
-    
+
     let server_config = config::config().server.as_ref().expect(
         "Server configuration (APP_SERVER_HOST, APP_SERVER_PORT) is required for local execution",
     );
@@ -35,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     info!("Server shutdown complete");
-    
+
     Ok(())
 }
 
