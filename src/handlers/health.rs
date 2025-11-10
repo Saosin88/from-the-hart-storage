@@ -9,14 +9,15 @@ use axum::{http::StatusCode, response::IntoResponse, Json};
 pub async fn health() -> impl IntoApiResponse {
     match health::get_health_status() {
         Ok(status) => (StatusCode::OK, Json(status)).into_response(),
-        Err(e) => {
-            let error_response = ErrorResponse {
+        Err(_) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse {
                 code: "SERVICE_UNAVAILABLE".to_string(),
                 message: "Health check failed".to_string(),
-                details: Some(e.to_string()),
-            };
-            (StatusCode::SERVICE_UNAVAILABLE, Json(error_response)).into_response()
-        }
+                details: None,
+            }),
+        )
+            .into_response(),
     }
 }
 

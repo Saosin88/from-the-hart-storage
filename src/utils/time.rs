@@ -3,16 +3,6 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use thiserror::Error;
-
-#[derive(Debug, Error)]
-pub enum TimeError {
-    #[error("Time not initialized")]
-    NotInitialized,
-    #[error("Time calculation error: {0}")]
-    Calculation(String),
-}
-
 pub static START_TIME: OnceLock<SystemTime> = OnceLock::new();
 
 pub fn init_start_time() {
