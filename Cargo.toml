@@ -19,6 +19,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-error = "0.2"
 aide = { version = "0.15.1", features = ["axum", "swagger", "axum-json"] }
 schemars = "0.9"
+thiserror = "2.0.17"
 
 [dev-dependencies]
 axum-test = "18.2"

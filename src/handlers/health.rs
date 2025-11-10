@@ -1,12 +1,13 @@
 use crate::{
     models::{ErrorResponse, HealthResponse},
-    service,
+    service::health,
 };
+
 use aide::{axum::IntoApiResponse, transform::TransformOperation};
 use axum::{http::StatusCode, response::IntoResponse, Json};
 
 pub async fn health() -> impl IntoApiResponse {
-    match service::health::get_health_status() {
+    match health::get_health_status() {
         Ok(status) => (StatusCode::OK, Json(status)).into_response(),
         Err(e) => {
             let error_response = ErrorResponse {
@@ -51,7 +52,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_health_endpoint_returns_ok_when_service_initialized() {
-        crate::service::health::init_start_time();
+        crate::utils::time::init_start_time();
         let app = routes::configure_routes();
         let server = TestServer::new(app).unwrap();
         let response = server.get("/storage/health").await;
@@ -63,7 +64,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_health_endpoint_response_structure() {
-        crate::service::health::init_start_time();
+        crate::utils::time::init_start_time();
         let app = routes::configure_routes();
         let server = TestServer::new(app).unwrap();
         let response = server.get("/storage/health").await;
@@ -77,8 +78,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_health_status_returns_ok() {
-        crate::service::health::init_start_time();
-        let result = service::health::get_health_status();
+        crate::utils::time::init_start_time();
+        let result = health::get_health_status();
         assert!(result.is_ok());
         let health = result.unwrap();
         assert_eq!(health.data.status, "ok");

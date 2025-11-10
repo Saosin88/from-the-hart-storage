@@ -1,5 +1,4 @@
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 pub fn init_logging() {
     if std::env::var("RUST_LOG").is_err() {

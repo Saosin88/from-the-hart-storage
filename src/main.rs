@@ -1,20 +1,12 @@
-mod config;
-mod handlers;
-mod logging;
-mod models;
-mod repository;
-mod routes;
-mod service;
-mod utils;
+use from_the_hart_storage::{config, logging, routes, utils::time};
 
-use tokio::net::TcpListener;
-use tokio::signal;
+use tokio::{net::TcpListener, signal, signal::unix};
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    service::health::init_start_time();
+    time::init_start_time();
     config::init_config();
     logging::init_logging();
 
@@ -50,7 +42,7 @@ async fn shutdown_signal() {
 
     #[cfg(unix)]
     let terminate = async {
-        signal::unix::signal(signal::unix::SignalKind::terminate())
+        unix::signal(unix::SignalKind::terminate())
             .expect("failed to install SIGTERM handler")
             .recv()
             .await;

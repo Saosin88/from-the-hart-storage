@@ -1,6 +1,5 @@
-mod logging;
+use from_the_hart_storage::{config, logging, routes, utils::time};
 
-use from_the_hart_storage::{config, routes, service};
 use lambda_http::{run, Error};
 use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
@@ -8,7 +7,7 @@ use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    service::health::init_start_time();
+    time::init_start_time();
     config::init_config();
     logging::init_logging();
 
