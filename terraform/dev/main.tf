@@ -1,8 +1,8 @@
 module "from_the_hart_storage" {
-  source = "./modules/s3_cloudfront_secure_storage"
+  source = "../modules/s3_cloudfront_secure_storage"
 
   domain_name                        = "dev-storage.fromthehart.tech"
-  acm_certificate_arn                = aws_acm_certificate.certificate.arn
+  acm_certificate_arn                = data.terraform_remote_state.shared.outputs.acm_certificate_arn
   ssm_parameter_name_for_private_key = "/from-the-hart-tech-storage/dev/cloudfront-private-key"
 
   tags = {
@@ -25,6 +25,15 @@ resource "aws_lambda_function" "from_the_hart_storage_lambda_function" {
   memory_size   = 512
   timeout       = 90
   role          = data.terraform_remote_state.shared.outputs.from_the_hart_lambda_role_arn
+
+  architectures = ["x86_64"]
+
+  environment {
+    variables = {
+      APP_ENVIRONMENT = "dev"
+      RUST_LOG        = "info"
+    }
+  }
 }
 
 resource "aws_lambda_function_url" "from_the_hart_storage_function_url" {

@@ -1,25 +1,26 @@
-mod config;
-mod controllers;
-mod models;
-mod routes;
-mod services;
+mod logging;
 
-use actix_web::App;
-use lambda_web::{LambdaError, run_actix_on_lambda};
-use log::info;
+use from_the_hart_storage::{config, routes, services};
+use lambda_http::{run, Error};
+use tower::ServiceBuilder;
+use tower_http::trace::TraceLayer;
+use tracing::info;
 
 #[tokio::main]
-async fn main() -> Result<(), LambdaError> {
+async fn main() -> Result<(), Error> {
     services::init_start_time();
-    dotenvy::dotenv().ok();
-    env_logger::init();
     config::init_config();
+    logging::init_logging();
 
+    let app = routes::configure_routes();
+    let app = ServiceBuilder::new()
+        .layer(TraceLayer::new_for_http())
+        .service(app);
+        
     info!(
-        "From The Hart Media starting on Lambda [environment: {}]",
-        config::config().environment
+        environment = %config::config().environment,
+        "From The Hart Storage starting on Lambda"
     );
-
-    let app = move || App::new().configure(routes::configure_routes);
-    run_actix_on_lambda(app).await
+    
+    run(app).await
 }

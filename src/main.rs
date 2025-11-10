@@ -1,45 +1,68 @@
 mod config;
 mod controllers;
+mod logging;
 mod models;
 mod routes;
 mod services;
 
-use actix_web::{App, HttpServer};
-use log::info;
+use tokio::net::TcpListener;
+use tokio::signal;
+use tower_http::trace::TraceLayer;
+use tracing::{info, warn};
 
-#[actix_web::main]
-async fn main() -> std::io::Result<()> {
-    let environment = std::env::var("ENVIRONMENT").ok();
-
-    if environment.as_deref() == Some("local") || environment.is_none() {
-        dotenvy::dotenv().map_err(|_| {
-            std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                if environment.is_none() {
-                    "No ENVIRONMENT variable specified so assuming the environment is \"local\", but can't find a \".env\" file for local configuration"
-                } else {
-                    "ENVIRONMENT is set to \"local\", but can't find a \".env\" file for local configuration"
-                }
-            )
-        })?;
-    }
-
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     services::init_start_time();
-    env_logger::init();
     config::init_config();
+    logging::init_logging();
 
-    let app = move || App::new().configure(routes::configure_routes);
-
-    let bind_address = (
-        config::config().server.host.as_str(),
-        config::config().server.port,
+    let app = routes::configure_routes().layer(TraceLayer::new_for_http());
+    
+    let server_config = config::config().server.as_ref().expect(
+        "Server configuration (APP_SERVER_HOST, APP_SERVER_PORT) is required for local execution",
     );
+    let bind_address = format!("{}:{}", server_config.host, server_config.port);
+    let listener = TcpListener::bind(&bind_address).await?;
+
     info!(
-        "From The Hart Media starting on http://{}:{} [environment: {}]",
-        config::config().server.host,
-        config::config().server.port,
-        config::config().environment
+        bind_address = %bind_address,
+        environment = %config::config().environment,
+        "From The Hart Storage starting"
     );
 
-    HttpServer::new(app).bind(bind_address)?.run().await
+    axum::serve(listener, app.into_make_service())
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
+
+    info!("Server shutdown complete");
+    
+    Ok(())
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {
+            warn!("Received SIGINT (Ctrl+C), initiating graceful shutdown");
+        },
+        _ = terminate => {
+            warn!("Received SIGTERM, initiating graceful shutdown");
+        },
+    }
 }
