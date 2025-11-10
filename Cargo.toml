@@ -7,7 +7,7 @@ default-run = "from-the-hart-storage"
 [dependencies]
 axum = "0.8.6"
 tower = "0.5"
-tower-http = { version = "0.6", features = ["trace", "cors"] }
+tower-http = { version = "0.6", features = ["trace"] }
 lambda_http = "0.17.0"
 serde = { version = "1.0", features = ["derive"] }
 config = "0.15"

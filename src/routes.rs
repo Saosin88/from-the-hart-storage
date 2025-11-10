@@ -6,7 +6,6 @@ use aide::{
     transform::TransformOpenApi,
 };
 use axum::{response::IntoResponse, Extension, Json, Router};
-use tower_http::cors::{Any, CorsLayer};
 
 fn create_api_docs(api: TransformOpenApi) -> TransformOpenApi {
     api.title("From The Hart Storage API")
@@ -31,10 +30,6 @@ fn create_api_docs(api: TransformOpenApi) -> TransformOpenApi {
 
 pub fn configure_routes() -> Router {
     let mut api = OpenApi::default();
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
     let storage_router = ApiRouter::new()
         .api_route(
             "/health",
@@ -68,5 +63,4 @@ pub fn configure_routes() -> Router {
         .nest("/storage", storage_router)
         .finish_api_with(&mut api, create_api_docs)
         .layer(Extension(api))
-        .layer(cors)
 }
