@@ -7,7 +7,7 @@ use image::ImageReader;
 use std::collections::HashMap;
 
 use super::extractor::MetadataExtractor;
-use super::types::{ExifData, GpsData, ImageMetadata, MediaMetadata, MediaType};
+use super::types::{ExifData, ImageMetadata, MediaMetadata, MediaType};
 use crate::utils::s3;
 
 pub struct ImageMetadataExtractor;
@@ -17,43 +17,13 @@ impl ImageMetadataExtractor {
         Self
     }
 
-    /// Normalize a Tag debug string into a safe lowercase key.
-    /// Examples:
-    /// - "Tag(Exif, 36867)" -> "exif_36867"
-    /// - "DateTimeOriginal" (if Debug prints that) -> "datetimeoriginal"
-    fn normalize_tag_name(tag: &Tag) -> String {
-        let s = format!("{:?}", tag);
-        // Remove "Tag(" prefix and trailing ")" if present
-        let s = s
-            .trim_start_matches("Tag(")
-            .trim_end_matches(')')
-            .to_string();
-        // Replace ", " with underscore and any non-alphanumeric with underscore
-        let s = s.replace(", ", "_");
-        s.chars()
-            .map(|c| {
-                if c.is_ascii_alphanumeric() {
-                    c.to_ascii_lowercase()
-                } else {
-                    '_'
-                }
-            })
-            .collect()
-    }
-
-    /// Clean display_value strings:
-    /// - strip surrounding quotes
-    /// - unwrap "Some(...)" wrapper if present
-    /// - trim whitespace
     fn clean_value(raw: &str) -> String {
         let mut v = raw.trim().to_string();
 
-        // Remove Some(...) wrapper like: Some("Google")
         if v.starts_with("Some(") && v.ends_with(')') {
             v = v[5..v.len() - 1].to_string();
         }
 
-        // Trim surrounding quotes if present
         if v.starts_with('"') && v.ends_with('"') && v.len() >= 2 {
             v = v[1..v.len() - 1].to_string();
         }
@@ -61,40 +31,18 @@ impl ImageMetadataExtractor {
         v.trim().to_string()
     }
 
-    /// Parse EXIF data from raw bytes
     fn parse_exif(&self, bytes: &[u8]) -> Option<ExifData> {
         let mut cursor = std::io::Cursor::new(bytes);
         let reader = Reader::new().read_from_container(&mut cursor).ok()?;
 
         let mut exif_data = ExifData {
-            make: None,
-            model: None,
             date_time_original: None,
-            gps: None,
-            orientation: None,
-            iso: None,
-            exposure_time: None,
-            f_number: None,
-            focal_length: None,
-            flash: None,
             other_fields: HashMap::new(),
         };
-
-        // Extract common EXIF fields
-        if let Some(field) = reader.get_field(Tag::Make, In::PRIMARY) {
-            exif_data.make = Some(field.display_value().to_string());
-        }
-
-        if let Some(field) = reader.get_field(Tag::Model, In::PRIMARY) {
-            exif_data.model = Some(field.display_value().to_string());
-        }
 
         if let Some(field) = reader.get_field(Tag::DateTimeOriginal, In::PRIMARY) {
             let date_str = field.display_value().to_string();
 
-            // Try parsing with different EXIF date formats
-            // Standard EXIF format: "YYYY:MM:DD HH:MM:SS"
-            // Some cameras use: "YYYY-MM-DD HH:MM:SS"
             let parsed_date = NaiveDateTime::parse_from_str(&date_str, "%Y:%m:%d %H:%M:%S")
                 .or_else(|_| NaiveDateTime::parse_from_str(&date_str, "%Y-%m-%d %H:%M:%S"))
                 .ok();
@@ -108,103 +56,16 @@ impl ImageMetadataExtractor {
             }
         }
 
-        if let Some(field) = reader.get_field(Tag::Orientation, In::PRIMARY) {
-            if let Some(val) = field.value.get_uint(0) {
-                exif_data.orientation = Some(val);
-            }
-        }
-
-        if let Some(field) = reader.get_field(Tag::PhotographicSensitivity, In::PRIMARY) {
-            if let Some(val) = field.value.get_uint(0) {
-                exif_data.iso = Some(val);
-            }
-        }
-
-        if let Some(field) = reader.get_field(Tag::ExposureTime, In::PRIMARY) {
-            exif_data.exposure_time = Some(field.display_value().to_string());
-        }
-
-        if let Some(field) = reader.get_field(Tag::FNumber, In::PRIMARY) {
-            exif_data.f_number = Some(field.display_value().to_string());
-        }
-
-        if let Some(field) = reader.get_field(Tag::FocalLength, In::PRIMARY) {
-            exif_data.focal_length = Some(field.display_value().to_string());
-        }
-
-        if let Some(field) = reader.get_field(Tag::Flash, In::PRIMARY) {
-            exif_data.flash = Some(field.display_value().to_string());
-        }
-
-        // Extract GPS data
-        let gps_lat = reader.get_field(Tag::GPSLatitude, In::PRIMARY);
-        let gps_lat_ref = reader.get_field(Tag::GPSLatitudeRef, In::PRIMARY);
-        let gps_lon = reader.get_field(Tag::GPSLongitude, In::PRIMARY);
-        let gps_lon_ref = reader.get_field(Tag::GPSLongitudeRef, In::PRIMARY);
-        let gps_alt = reader.get_field(Tag::GPSAltitude, In::PRIMARY);
-
-        if let (Some(lat), Some(lat_ref), Some(lon), Some(lon_ref)) =
-            (gps_lat, gps_lat_ref, gps_lon, gps_lon_ref)
-        {
-            if let (Some(lat_vals), Some(lon_vals)) = (
-                self.parse_gps_coordinate(&lat.value),
-                self.parse_gps_coordinate(&lon.value),
-            ) {
-                let lat_sign = if lat_ref.display_value().to_string() == "S" {
-                    -1.0
-                } else {
-                    1.0
-                };
-                let lon_sign = if lon_ref.display_value().to_string() == "W" {
-                    -1.0
-                } else {
-                    1.0
-                };
-
-                let latitude = lat_sign * (lat_vals.0 + lat_vals.1 / 60.0 + lat_vals.2 / 3600.0);
-                let longitude = lon_sign * (lon_vals.0 + lon_vals.1 / 60.0 + lon_vals.2 / 3600.0);
-
-                let altitude = gps_alt.and_then(|alt| {
-                    if let exif::Value::Rational(ref rationals) = alt.value {
-                        rationals.first().map(|r| r.to_f64())
-                    } else {
-                        None
-                    }
-                });
-
-                exif_data.gps = Some(GpsData {
-                    latitude,
-                    longitude,
-                    altitude,
-                });
-            }
-        }
-
-        // Store other fields in a catch-all map, using normalized keys and cleaned values.
         for field in reader.fields() {
-            let key = Self::normalize_tag_name(&field.tag);
+            let key = field.tag.to_string(); // human-friendly key from exif crate
             let raw_value = field.display_value().to_string();
             let value = Self::clean_value(&raw_value);
-            // Insert/overwrite to keep the most recent occurrence
             exif_data.other_fields.insert(key, value);
         }
 
         Some(exif_data)
     }
 
-    /// Parse GPS coordinate from EXIF rational values
-    /// Returns (degrees, minutes, seconds)
-    fn parse_gps_coordinate(&self, value: &exif::Value) -> Option<(f64, f64, f64)> {
-        if let exif::Value::Rational(ref rationals) = value {
-            if rationals.len() >= 3 {
-                let degrees = rationals[0].to_f64();
-                let minutes = rationals[1].to_f64();
-                let seconds = rationals[2].to_f64();
-                return Some((degrees, minutes, seconds));
-            }
-        }
-        None
-    }
 }
 
 #[async_trait]
@@ -246,7 +107,6 @@ impl MetadataExtractor for ImageMetadataExtractor {
         metadata.content_type = content_type;
 
         // Fetch first 512KB for image processing and EXIF data
-        // This is usually enough for headers and EXIF without downloading full file
         let num_bytes = std::cmp::min(512 * 1024, file_size as u64);
         let bytes = s3::fetch_head_bytes(s3_client, bucket, key, num_bytes)
             .await
@@ -279,10 +139,8 @@ impl MetadataExtractor for ImageMetadataExtractor {
         let (width, height) = dimensions;
         tracing::debug!("Image dimensions: {}x{}", width, height);
 
-        // Parse EXIF data
         let exif = self.parse_exif(&bytes);
 
-        // If EXIF has DateTimeOriginal, use that as created_date
         if let Some(ref exif_data) = exif {
             if let Some(date_time_original) = exif_data.date_time_original {
                 metadata.created_date = date_time_original;

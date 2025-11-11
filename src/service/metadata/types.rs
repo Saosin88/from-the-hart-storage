@@ -59,37 +59,9 @@ pub struct ImageMetadata {
 /// EXIF data from images
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExifData {
-    /// Camera make
-    pub make: Option<String>,
-
-    /// Camera model
-    pub model: Option<String>,
-
     /// Date/time original (when photo was taken)
     pub date_time_original: Option<DateTime<Utc>>,
 
-    /// GPS coordinates
-    pub gps: Option<GpsData>,
-
-    /// Orientation (how the camera was held)
-    pub orientation: Option<u32>,
-
-    /// ISO speed
-    pub iso: Option<u32>,
-
-    /// Exposure time (shutter speed)
-    pub exposure_time: Option<String>,
-
-    /// F-number (aperture)
-    pub f_number: Option<String>,
-
-    /// Focal length
-    pub focal_length: Option<String>,
-
-    /// Flash setting
-    pub flash: Option<String>,
-
-    /// Additional EXIF fields not explicitly mapped
     pub other_fields: HashMap<String, String>,
 }
 

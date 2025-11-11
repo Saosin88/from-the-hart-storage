@@ -10,7 +10,6 @@ use tracing::{debug, error, info};
 
 use super::metadata::MetadataService;
 
-// Use tokio's OnceCell for async initialization
 static S3_CLIENT: OnceCell<Arc<S3Client>> = OnceCell::const_new();
 static METADATA_SERVICE: Lazy<MetadataService> = Lazy::new(MetadataService::new);
 
@@ -24,7 +23,6 @@ async fn get_s3_client() -> Arc<S3Client> {
         .clone()
 }
 
-/// URL-decode a string, handling AWS S3 event encoding
 fn url_decode(s: &str) -> Result<String> {
     urlencoding::decode(s)
         .map(Cow::into_owned)
@@ -59,7 +57,6 @@ pub async fn process_s3_event_message(sqs_message: &SqsMessage) -> Result<()> {
             .as_ref()
             .context("S3 record missing object key")?;
 
-        // URL-decode the key - S3 events encode special characters like ~ as %7E
         let key = url_decode(key_raw)?;
 
         let event_name = record
@@ -77,7 +74,6 @@ pub async fn process_s3_event_message(sqs_message: &SqsMessage) -> Result<()> {
             "Processing S3 object"
         );
 
-        // Extract metadata from the file
         let s3_client = get_s3_client().await;
         match METADATA_SERVICE
             .extract_metadata(&s3_client, bucket, &key, size)
@@ -104,28 +100,6 @@ pub async fn process_s3_event_message(sqs_message: &SqsMessage) -> Result<()> {
                         has_exif = %img_meta.exif.is_some(),
                         "Image metadata"
                     );
-
-                    if let Some(ref exif) = img_meta.exif {
-                        info!(
-                            make = ?exif.make,
-                            model = ?exif.model,
-                            date_time_original = ?exif.date_time_original,
-                            has_gps = %exif.gps.is_some(),
-                            iso = ?exif.iso,
-                            exposure_time = ?exif.exposure_time,
-                            f_number = ?exif.f_number,
-                            "EXIF data"
-                        );
-
-                        if let Some(ref gps) = exif.gps {
-                            info!(
-                                latitude = %gps.latitude,
-                                longitude = %gps.longitude,
-                                altitude = ?gps.altitude,
-                                "GPS coordinates"
-                            );
-                        }
-                    }
                 }
 
                 // Log video-specific metadata if available
