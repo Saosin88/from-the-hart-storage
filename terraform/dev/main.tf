@@ -63,7 +63,7 @@ resource "aws_lambda_function" "from_the_hart_storage_sqs_worker" {
   package_type  = "Image"
   image_uri     = var.lambda_image_uri
   memory_size   = 512
-  timeout       = 90
+  timeout       = 300
   role          = data.terraform_remote_state.shared.outputs.from_the_hart_lambda_role_arn
 
   architectures = ["x86_64"]

@@ -1,6 +1,6 @@
 resource "aws_sqs_queue" "main" {
   name                       = "${var.name_prefix}-s3-events"
-  visibility_timeout_seconds = 90
+  visibility_timeout_seconds = 360
   message_retention_seconds  = 86400 # 1 days
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.dlq.arn
@@ -11,7 +11,7 @@ resource "aws_sqs_queue" "main" {
 resource "aws_sqs_queue" "dlq" {
   name                       = "${var.name_prefix}-s3-events-dlq"
   message_retention_seconds  = 1209600 # 14 days
-  visibility_timeout_seconds = 90
+  visibility_timeout_seconds = 360
 }
 
 resource "aws_sqs_queue_policy" "allow_s3" {
