@@ -1,0 +1,79 @@
+use anyhow::{Context, Result};
+use aws_sdk_s3::Client as S3Client;
+use std::io::Cursor;
+
+/// Fetch a byte range from an S3 object
+/// This allows us to download only the portion of the file we need
+/// without downloading the entire file
+pub async fn fetch_byte_range(
+    s3_client: &S3Client,
+    bucket: &str,
+    key: &str,
+    start: u64,
+    end: u64,
+) -> Result<Vec<u8>> {
+    let range = format!("bytes={}-{}", start, end);
+
+    let response = s3_client
+        .get_object()
+        .bucket(bucket)
+        .key(key)
+        .range(range)
+        .send()
+        .await
+        .context("Failed to fetch byte range from S3")?;
+
+    let bytes = response
+        .body
+        .collect()
+        .await
+        .context("Failed to read S3 response body")?
+        .into_bytes();
+
+    Ok(bytes.to_vec())
+}
+
+/// Fetch the first N bytes of an S3 object
+/// Useful for reading file headers to determine format and extract metadata
+pub async fn fetch_head_bytes(
+    s3_client: &S3Client,
+    bucket: &str,
+    key: &str,
+    num_bytes: u64,
+) -> Result<Vec<u8>> {
+    fetch_byte_range(s3_client, bucket, key, 0, num_bytes - 1).await
+}
+
+/// Create a Cursor (in-memory reader) from bytes
+/// This allows us to use standard Read/Seek traits with byte slices
+pub fn bytes_to_cursor(bytes: Vec<u8>) -> Cursor<Vec<u8>> {
+    Cursor::new(bytes)
+}
+
+/// Get the content type and last modified date from S3 object metadata
+pub async fn get_object_metadata(
+    s3_client: &S3Client,
+    bucket: &str,
+    key: &str,
+) -> Result<(Option<String>, chrono::DateTime<chrono::Utc>)> {
+    let response = s3_client
+        .head_object()
+        .bucket(bucket)
+        .key(key)
+        .send()
+        .await
+        .context("Failed to get S3 object metadata")?;
+
+    let content_type = response.content_type().map(|s| s.to_string());
+
+    let last_modified = response
+        .last_modified()
+        .and_then(|dt| {
+            chrono::DateTime::parse_from_rfc3339(&dt.to_string())
+                .ok()
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+        })
+        .unwrap_or_else(chrono::Utc::now);
+
+    Ok((content_type, last_modified))
+}

@@ -1,7 +1,22 @@
 use anyhow::{Context, Result};
 use aws_lambda_events::event::{s3::S3Event, sqs::SqsMessage};
+use aws_sdk_s3::Client as S3Client;
+use once_cell::sync::Lazy;
 use serde_json;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
+
+use super::metadata::MetadataService;
+
+// Initialize S3 client and metadata service once
+static S3_CLIENT: Lazy<S3Client> = Lazy::new(|| {
+    let rt = tokio::runtime::Handle::current();
+    rt.block_on(async {
+        let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+        S3Client::new(&config)
+    })
+});
+
+static METADATA_SERVICE: Lazy<MetadataService> = Lazy::new(MetadataService::new);
 
 pub async fn process_s3_event_message(sqs_message: &SqsMessage) -> Result<()> {
     let body = sqs_message
@@ -34,49 +49,106 @@ pub async fn process_s3_event_message(sqs_message: &SqsMessage) -> Result<()> {
             .event_name
             .as_ref()
             .context("S3 record missing event name")?;
+        let size = record.s3.object.size.unwrap_or(0);
 
         info!(
             bucket = %bucket,
             key = %key,
             event = %event_name,
+            size = %size,
             "Processing S3 object"
         );
 
-        if key.contains("fail") {
-            debug!("Forcing error for key={}", key);
-            return Err(anyhow::anyhow!("forced failure for testing"));
+        // Extract metadata from the file
+        match METADATA_SERVICE
+            .extract_metadata(&S3_CLIENT, bucket, key, size)
+            .await
+        {
+            Ok(metadata) => {
+                // Log the metadata
+                info!(
+                    bucket = %bucket,
+                    key = %key,
+                    media_type = ?metadata.media_type,
+                    file_size = %metadata.file_size,
+                    content_type = ?metadata.content_type,
+                    created_date = %metadata.created_date,
+                    "Extracted metadata"
+                );
+
+                // Log image-specific metadata if available
+                if let Some(ref img_meta) = metadata.image_metadata {
+                    info!(
+                        width = %img_meta.width,
+                        height = %img_meta.height,
+                        format = %img_meta.format,
+                        has_exif = %img_meta.exif.is_some(),
+                        "Image metadata"
+                    );
+
+                    if let Some(ref exif) = img_meta.exif {
+                        info!(
+                            make = ?exif.make,
+                            model = ?exif.model,
+                            date_time_original = ?exif.date_time_original,
+                            has_gps = %exif.gps.is_some(),
+                            iso = ?exif.iso,
+                            exposure_time = ?exif.exposure_time,
+                            f_number = ?exif.f_number,
+                            "EXIF data"
+                        );
+
+                        if let Some(ref gps) = exif.gps {
+                            info!(
+                                latitude = %gps.latitude,
+                                longitude = %gps.longitude,
+                                altitude = ?gps.altitude,
+                                "GPS coordinates"
+                            );
+                        }
+                    }
+                }
+
+                // Log video-specific metadata if available
+                if let Some(ref video_meta) = metadata.video_metadata {
+                    info!(
+                        width = ?video_meta.width,
+                        height = ?video_meta.height,
+                        duration = ?video_meta.duration,
+                        codec = ?video_meta.codec,
+                        frame_rate = ?video_meta.frame_rate,
+                        bitrate = ?video_meta.bitrate,
+                        "Video metadata"
+                    );
+                }
+
+                // Pretty print the full metadata as JSON for easy copying
+                match serde_json::to_string_pretty(&metadata) {
+                    Ok(json) => {
+                        info!("Full metadata JSON:\n{}", json);
+                    }
+                    Err(e) => {
+                        error!("Failed to serialize metadata to JSON: {:?}", e);
+                    }
+                }
+
+                // TODO: Future DynamoDB integration
+                // store_metadata_in_dynamodb(metadata).await?;
+            }
+            Err(e) => {
+                // Log the error but don't fail the message
+                // This allows processing to continue even if metadata extraction fails
+                error!(
+                    bucket = %bucket,
+                    key = %key,
+                    error = %e,
+                    "Failed to extract metadata - skipping"
+                );
+            }
         }
-
-        // TODO: Future integration points:
-        // 1. Fetch object metadata from S3
-        // let metadata = fetch_s3_metadata(bucket, key).await?;
-
-        // 2. Process the object (e.g., validate, transform, extract metadata)
-        // let result = process_object(bucket, key, &metadata).await?;
-
-        // 3. Store result in DynamoDB
-        // store_processing_result(bucket, key, result).await?;
 
         debug!("S3 object processed successfully");
     }
 
     Ok(())
 }
-
-// TODO: Future S3 integration
-// async fn fetch_s3_metadata(bucket: &str, key: &str) -> Result<ObjectMetadata> {
-//     // Use aws-sdk-s3 to HEAD object and get metadata
-//     unimplemented!()
-// }
-
-// TODO: Future processing logic
-// async fn process_object(bucket: &str, key: &str, metadata: &ObjectMetadata) -> Result<ProcessingResult> {
-//     // Your business logic here
-//     unimplemented!()
-// }
-
-// TODO: Future DynamoDB integration
-// async fn store_processing_result(bucket: &str, key: &str, result: ProcessingResult) -> Result<()> {
-//     // Use crate::repository::dynamodb to store result
-//     unimplemented!()
-// }
