@@ -142,9 +142,9 @@ pub async fn process_s3_event_message(sqs_message: &SqsMessage) -> Result<()> {
                 }
 
                 // Pretty print the full metadata as JSON for easy copying
-                match serde_json::to_string_pretty(&metadata) {
+                match serde_json::to_string(&metadata) {
                     Ok(json) => {
-                        info!("Full metadata JSON:\n{}", json);
+                        info!(metadata = %json, "full_metadata");
                     }
                     Err(e) => {
                         error!("Failed to serialize metadata to JSON: {:?}", e);
