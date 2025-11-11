@@ -3,6 +3,7 @@ use aws_lambda_events::event::{s3::S3Event, sqs::SqsMessage};
 use aws_sdk_s3::Client as S3Client;
 use once_cell::sync::Lazy;
 use serde_json;
+use std::borrow::Cow;
 use std::sync::Arc;
 use tokio::sync::OnceCell;
 use tracing::{debug, error, info};
@@ -21,6 +22,13 @@ async fn get_s3_client() -> Arc<S3Client> {
         })
         .await
         .clone()
+}
+
+/// URL-decode a string, handling AWS S3 event encoding
+fn url_decode(s: &str) -> Result<String> {
+    urlencoding::decode(s)
+        .map(Cow::into_owned)
+        .context("Failed to URL-decode string")
 }
 
 pub async fn process_s3_event_message(sqs_message: &SqsMessage) -> Result<()> {
@@ -52,9 +60,7 @@ pub async fn process_s3_event_message(sqs_message: &SqsMessage) -> Result<()> {
             .context("S3 record missing object key")?;
 
         // URL-decode the key - S3 events encode special characters like ~ as %7E
-        let key = urlencoding::decode(key_raw)
-            .context("Failed to URL-decode S3 object key")?
-            .into_owned();
+        let key = url_decode(key_raw)?;
 
         let event_name = record
             .event_name
