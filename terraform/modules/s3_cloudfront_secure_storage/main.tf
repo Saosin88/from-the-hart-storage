@@ -1,7 +1,7 @@
 resource "aws_s3_bucket" "storage" {
-  bucket = var.domain_name
+  bucket        = var.domain_name
   force_destroy = true
-  tags   = var.tags
+  tags          = var.tags
 }
 
 resource "aws_s3_bucket_versioning" "storage" {
@@ -40,7 +40,7 @@ data "aws_iam_policy_document" "s3_policy" {
       identifiers = ["cloudfront.amazonaws.com"]
     }
 
-    actions = ["s3:GetObject"]
+    actions   = ["s3:GetObject"]
     resources = ["${aws_s3_bucket.storage.arn}/*"]
 
     condition {
@@ -111,10 +111,10 @@ resource "aws_cloudfront_cache_policy" "signed_urls" {
 }
 
 resource "aws_cloudfront_distribution" "storage" {
-  enabled             = true
-  is_ipv6_enabled     = true
-  comment             = "Cloudfront for ${var.domain_name}"
-  aliases             = [var.domain_name]
+  enabled         = true
+  is_ipv6_enabled = true
+  comment         = "Cloudfront for ${var.domain_name}"
+  aliases         = [var.domain_name]
 
   origin {
     domain_name              = aws_s3_bucket.storage.bucket_regional_domain_name

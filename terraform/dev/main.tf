@@ -13,6 +13,13 @@ module "from_the_hart_storage" {
   }
 }
 
+module "from_the_hart_storage_notifications" {
+  source      = "../modules/s3_notifications"
+  bucket_id   = module.from_the_hart_storage.s3_bucket_name
+  bucket_arn  = module.from_the_hart_storage.s3_bucket_arn
+  name_prefix = "from-the-hart-storage-dev"
+}
+
 variable "lambda_image_uri" {
   description = "ECR image URI for the Lambda function"
   type        = string
