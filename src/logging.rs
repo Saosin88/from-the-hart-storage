@@ -5,7 +5,7 @@ pub fn init_logging() {
         panic!("RUST_LOG environment variable must be set");
     }
     tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer())
+        .with(tracing_subscriber::fmt::layer().with_ansi(false))
         .with(tracing_subscriber::EnvFilter::from_default_env())
         .with(tracing_error::ErrorLayer::default())
         .init();
