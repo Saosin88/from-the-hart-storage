@@ -21,13 +21,23 @@ pub async fn fetch_byte_range(
         .range(&range)
         .send()
         .await
-        .with_context(|| format!("Failed to fetch byte range {} from S3 object s3://{}/{}", range, bucket, key))?;
+        .with_context(|| {
+            format!(
+                "Failed to fetch byte range {} from S3 object s3://{}/{}",
+                range, bucket, key
+            )
+        })?;
 
     let bytes = response
         .body
         .collect()
         .await
-        .with_context(|| format!("Failed to read S3 response body for s3://{}/{}", bucket, key))?
+        .with_context(|| {
+            format!(
+                "Failed to read S3 response body for s3://{}/{}",
+                bucket, key
+            )
+        })?
         .into_bytes();
 
     Ok(bytes.to_vec())
@@ -62,7 +72,12 @@ pub async fn get_object_metadata(
         .key(key)
         .send()
         .await
-        .with_context(|| format!("Failed to get S3 object metadata for s3://{}/{}", bucket, key))?;
+        .with_context(|| {
+            format!(
+                "Failed to get S3 object metadata for s3://{}/{}",
+                bucket, key
+            )
+        })?;
 
     let content_type = response.content_type().map(|s| s.to_string());
 

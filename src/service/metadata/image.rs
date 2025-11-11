@@ -194,7 +194,12 @@ impl MetadataExtractor for ImageMetadataExtractor {
         let num_bytes = std::cmp::min(512 * 1024, file_size as u64);
         let bytes = s3::fetch_head_bytes(s3_client, bucket, key, num_bytes)
             .await
-            .with_context(|| format!("Failed to fetch first {} bytes from S3 for {}/{}", num_bytes, bucket, key))?;
+            .with_context(|| {
+                format!(
+                    "Failed to fetch first {} bytes from S3 for {}/{}",
+                    num_bytes, bucket, key
+                )
+            })?;
 
         tracing::debug!("Fetched {} bytes from S3 for image processing", bytes.len());
 
@@ -211,7 +216,8 @@ impl MetadataExtractor for ImageMetadataExtractor {
 
         tracing::debug!("Detected image format: {}", format);
 
-        let dimensions = img_reader.into_dimensions()
+        let dimensions = img_reader
+            .into_dimensions()
             .with_context(|| format!("Failed to read image dimensions for {}/{}", bucket, key))?;
 
         let (width, height) = dimensions;
