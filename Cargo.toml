@@ -31,6 +31,7 @@ kamadak-exif = "0.5"
 mp4parse = "0.17"
 chrono = "0.4"
 async-trait = "0.1"
+urlencoding = "2.1"
 
 [dev-dependencies]
 axum-test = "18.2"

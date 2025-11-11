@@ -44,12 +44,18 @@ pub async fn process_s3_event_message(sqs_message: &SqsMessage) -> Result<()> {
             .name
             .as_ref()
             .context("S3 record missing bucket name")?;
-        let key = record
+        let key_raw = record
             .s3
             .object
             .key
             .as_ref()
             .context("S3 record missing object key")?;
+
+        // URL-decode the key - S3 events encode special characters like ~ as %7E
+        let key = urlencoding::decode(key_raw)
+            .context("Failed to URL-decode S3 object key")?
+            .into_owned();
+
         let event_name = record
             .event_name
             .as_ref()
@@ -59,6 +65,7 @@ pub async fn process_s3_event_message(sqs_message: &SqsMessage) -> Result<()> {
         info!(
             bucket = %bucket,
             key = %key,
+            key_raw = %key_raw,
             event = %event_name,
             size = %size,
             "Processing S3 object"
@@ -67,7 +74,7 @@ pub async fn process_s3_event_message(sqs_message: &SqsMessage) -> Result<()> {
         // Extract metadata from the file
         let s3_client = get_s3_client().await;
         match METADATA_SERVICE
-            .extract_metadata(&s3_client, bucket, key, size)
+            .extract_metadata(&s3_client, bucket, &key, size)
             .await
         {
             Ok(metadata) => {
