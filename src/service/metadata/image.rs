@@ -47,10 +47,20 @@ impl ImageMetadataExtractor {
 
         if let Some(field) = reader.get_field(Tag::DateTimeOriginal, In::PRIMARY) {
             let date_str = field.display_value().to_string();
-            // EXIF date format: "YYYY:MM:DD HH:MM:SS"
-            if let Ok(naive_dt) = NaiveDateTime::parse_from_str(&date_str, "%Y:%m:%d %H:%M:%S") {
+
+            // Try parsing with different EXIF date formats
+            // Standard EXIF format: "YYYY:MM:DD HH:MM:SS"
+            // Some cameras use: "YYYY-MM-DD HH:MM:SS"
+            let parsed_date = NaiveDateTime::parse_from_str(&date_str, "%Y:%m:%d %H:%M:%S")
+                .or_else(|_| NaiveDateTime::parse_from_str(&date_str, "%Y-%m-%d %H:%M:%S"))
+                .ok();
+
+            if let Some(naive_dt) = parsed_date {
                 exif_data.date_time_original =
                     Some(DateTime::from_naive_utc_and_offset(naive_dt, Utc));
+                tracing::debug!("Parsed DateTimeOriginal: {} -> {:?}", date_str, naive_dt);
+            } else {
+                tracing::warn!("Failed to parse DateTimeOriginal: {}", date_str);
             }
         }
 
