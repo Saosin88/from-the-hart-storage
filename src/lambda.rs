@@ -13,7 +13,7 @@ async fn main() -> Result<(), Error> {
     config::init_config();
     logging::init_logging();
 
-    let handler_type = &config::config().handler_type;
+    let handler_type = &config::config().handlertype;
 
     match handler_type {
         config::HandlerType::HTTP => {
