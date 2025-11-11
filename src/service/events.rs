@@ -80,7 +80,6 @@ pub async fn process_s3_event_message(sqs_message: &SqsMessage) -> Result<()> {
             .await
         {
             Ok(metadata) => {
-                // Log the metadata
                 info!(
                     bucket = %bucket,
                     key = %key,
@@ -91,7 +90,6 @@ pub async fn process_s3_event_message(sqs_message: &SqsMessage) -> Result<()> {
                     "Extracted metadata"
                 );
 
-                // Log image-specific metadata if available
                 if let Some(ref img_meta) = metadata.image_metadata {
                     info!(
                         width = %img_meta.width,
@@ -102,7 +100,6 @@ pub async fn process_s3_event_message(sqs_message: &SqsMessage) -> Result<()> {
                     );
                 }
 
-                // Log video-specific metadata if available
                 if let Some(ref video_meta) = metadata.video_metadata {
                     info!(
                         width = ?video_meta.width,
@@ -115,7 +112,6 @@ pub async fn process_s3_event_message(sqs_message: &SqsMessage) -> Result<()> {
                     );
                 }
 
-                // Pretty print the full metadata as JSON for easy copying
                 match serde_json::to_string(&metadata) {
                     Ok(json) => {
                         info!(metadata = %json, "full_metadata");
@@ -129,8 +125,6 @@ pub async fn process_s3_event_message(sqs_message: &SqsMessage) -> Result<()> {
                 // store_metadata_in_dynamodb(metadata).await?;
             }
             Err(e) => {
-                // Log the error but don't fail the message
-                // This allows processing to continue even if metadata extraction fails
                 error!(
                     bucket = %bucket,
                     key = %key,
