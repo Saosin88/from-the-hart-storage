@@ -8,12 +8,18 @@ pub struct ServerConfig {
     pub host: String,
     pub port: u16,
 }
+#[derive(Debug, Deserialize)]
+pub enum HandlerType {
+    HTTP,
+    SQS,
+}
 
 #[derive(Debug, Deserialize)]
 pub struct AppConfig {
     pub environment: String,
     #[serde(default)]
     pub server: Option<ServerConfig>,
+    pub handler_type: HandlerType,
 }
 
 impl AppConfig {
