@@ -38,7 +38,7 @@ resource "aws_lambda_function" "from_the_hart_storage_http_worker" {
   environment {
     variables = {
       APP_ENVIRONMENT  = "dev"
-      APP_HANDLER_TYPE = "HTTP"
+      APP_HANDLERTYPE = "HTTP"
       RUST_LOG         = "info"
     }
   }
@@ -71,7 +71,7 @@ resource "aws_lambda_function" "from_the_hart_storage_sqs_worker" {
   environment {
     variables = {
       APP_ENVIRONMENT  = "dev"
-      APP_HANDLER_TYPE = "SQS"
+      APP_HANDLERTYPE = "SQS"
       RUST_LOG         = "info"
     }
   }
