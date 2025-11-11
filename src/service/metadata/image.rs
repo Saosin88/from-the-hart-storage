@@ -17,6 +17,50 @@ impl ImageMetadataExtractor {
         Self
     }
 
+    /// Normalize a Tag debug string into a safe lowercase key.
+    /// Examples:
+    /// - "Tag(Exif, 36867)" -> "exif_36867"
+    /// - "DateTimeOriginal" (if Debug prints that) -> "datetimeoriginal"
+    fn normalize_tag_name(tag: &Tag) -> String {
+        let s = format!("{:?}", tag);
+        // Remove "Tag(" prefix and trailing ")" if present
+        let s = s
+            .trim_start_matches("Tag(")
+            .trim_end_matches(')')
+            .to_string();
+        // Replace ", " with underscore and any non-alphanumeric with underscore
+        let s = s.replace(", ", "_");
+        s.chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() {
+                    c.to_ascii_lowercase()
+                } else {
+                    '_'
+                }
+            })
+            .collect()
+    }
+
+    /// Clean display_value strings:
+    /// - strip surrounding quotes
+    /// - unwrap "Some(...)" wrapper if present
+    /// - trim whitespace
+    fn clean_value(raw: &str) -> String {
+        let mut v = raw.trim().to_string();
+
+        // Remove Some(...) wrapper like: Some("Google")
+        if v.starts_with("Some(") && v.ends_with(')') {
+            v = v[5..v.len() - 1].to_string();
+        }
+
+        // Trim surrounding quotes if present
+        if v.starts_with('"') && v.ends_with('"') && v.len() >= 2 {
+            v = v[1..v.len() - 1].to_string();
+        }
+
+        v.trim().to_string()
+    }
+
     /// Parse EXIF data from raw bytes
     fn parse_exif(&self, bytes: &[u8]) -> Option<ExifData> {
         let mut cursor = std::io::Cursor::new(bytes);
@@ -136,11 +180,13 @@ impl ImageMetadataExtractor {
             }
         }
 
-        // Store other fields in a catch-all map
+        // Store other fields in a catch-all map, using normalized keys and cleaned values.
         for field in reader.fields() {
-            let tag_name = format!("{:?}", field.tag);
-            let value = field.display_value().to_string();
-            exif_data.other_fields.entry(tag_name).or_insert(value);
+            let key = Self::normalize_tag_name(&field.tag);
+            let raw_value = field.display_value().to_string();
+            let value = Self::clean_value(&raw_value);
+            // Insert/overwrite to keep the most recent occurrence
+            exif_data.other_fields.insert(key, value);
         }
 
         Some(exif_data)
