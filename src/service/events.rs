@@ -3,22 +3,24 @@ use aws_lambda_events::event::{s3::S3Event, sqs::SqsMessage};
 use aws_sdk_s3::Client as S3Client;
 use once_cell::sync::Lazy;
 use serde_json;
+use std::sync::Arc;
 use tokio::sync::OnceCell;
 use tracing::{debug, error, info};
 
 use super::metadata::MetadataService;
 
-// Use tokio::sync::OnceCell for async initialization
-static S3_CLIENT: OnceCell<S3Client> = OnceCell::const_new();
+// Use tokio's OnceCell for async initialization
+static S3_CLIENT: OnceCell<Arc<S3Client>> = OnceCell::const_new();
 static METADATA_SERVICE: Lazy<MetadataService> = Lazy::new(MetadataService::new);
 
-async fn get_s3_client() -> &'static S3Client {
+async fn get_s3_client() -> Arc<S3Client> {
     S3_CLIENT
         .get_or_init(|| async {
             let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
-            S3Client::new(&config)
+            Arc::new(S3Client::new(&config))
         })
         .await
+        .clone()
 }
 
 pub async fn process_s3_event_message(sqs_message: &SqsMessage) -> Result<()> {
@@ -65,7 +67,7 @@ pub async fn process_s3_event_message(sqs_message: &SqsMessage) -> Result<()> {
         // Extract metadata from the file
         let s3_client = get_s3_client().await;
         match METADATA_SERVICE
-            .extract_metadata(s3_client, bucket, key, size)
+            .extract_metadata(&s3_client, bucket, key, size)
             .await
         {
             Ok(metadata) => {
