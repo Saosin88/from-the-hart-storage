@@ -194,39 +194,45 @@ impl MetadataExtractor for ImageMetadataExtractor {
         let num_bytes = std::cmp::min(512 * 1024, file_size as u64);
         let bytes = s3::fetch_head_bytes(s3_client, bucket, key, num_bytes)
             .await
-            .context("Failed to fetch image bytes from S3")?;
+            .with_context(|| format!("Failed to fetch first {} bytes from S3 for {}/{}", num_bytes, bucket, key))?;
+
+        tracing::debug!("Fetched {} bytes from S3 for image processing", bytes.len());
 
         // Parse image dimensions and format
         let cursor = s3::bytes_to_cursor(bytes.clone());
         let img_reader = ImageReader::new(cursor)
             .with_guessed_format()
-            .context("Failed to guess image format")?;
+            .with_context(|| format!("Failed to guess image format for {}/{}", bucket, key))?;
 
         let format = img_reader
             .format()
             .map(|f| format!("{:?}", f))
             .unwrap_or_else(|| "Unknown".to_string());
 
-        let dimensions = img_reader.into_dimensions();
+        tracing::debug!("Detected image format: {}", format);
 
-        if let Ok((width, height)) = dimensions {
-            // Parse EXIF data
-            let exif = self.parse_exif(&bytes);
+        let dimensions = img_reader.into_dimensions()
+            .with_context(|| format!("Failed to read image dimensions for {}/{}", bucket, key))?;
 
-            // If EXIF has DateTimeOriginal, use that as created_date
-            if let Some(ref exif_data) = exif {
-                if let Some(date_time_original) = exif_data.date_time_original {
-                    metadata.created_date = date_time_original;
-                }
+        let (width, height) = dimensions;
+        tracing::debug!("Image dimensions: {}x{}", width, height);
+
+        // Parse EXIF data
+        let exif = self.parse_exif(&bytes);
+
+        // If EXIF has DateTimeOriginal, use that as created_date
+        if let Some(ref exif_data) = exif {
+            if let Some(date_time_original) = exif_data.date_time_original {
+                metadata.created_date = date_time_original;
             }
-
-            metadata.image_metadata = Some(ImageMetadata {
-                width,
-                height,
-                format,
-                exif,
-            });
         }
+
+        metadata.image_metadata = Some(ImageMetadata {
+            width,
+            height,
+            format,
+            exif,
+        });
 
         Ok(metadata)
     }

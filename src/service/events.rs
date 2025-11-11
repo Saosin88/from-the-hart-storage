@@ -148,6 +148,7 @@ pub async fn process_s3_event_message(sqs_message: &SqsMessage) -> Result<()> {
                     bucket = %bucket,
                     key = %key,
                     error = %e,
+                    error_chain = ?e,
                     "Failed to extract metadata - skipping"
                 );
             }
