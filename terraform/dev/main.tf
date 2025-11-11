@@ -82,12 +82,12 @@ resource "aws_lambda_event_source_mapping" "sqs_to_lambda" {
   function_name    = aws_lambda_function.from_the_hart_storage_sqs_worker.arn
 
   batch_size                         = 10
-  maximum_batching_window_in_seconds = 5
+  maximum_batching_window_in_seconds = 30
 
   function_response_types = ["ReportBatchItemFailures"]
 
   scaling_config {
-    maximum_concurrency = 10
+    maximum_concurrency = 1
   }
 }
 
