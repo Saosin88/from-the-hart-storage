@@ -4,11 +4,11 @@ mod types;
 mod video;
 
 use anyhow::{Context, Result};
-use aws_sdk_s3::Client as S3Client;
 use std::path::Path;
 
 pub use types::{ExifData, GpsData, ImageMetadata, MediaMetadata, MediaType, VideoMetadata};
 
+use crate::service::FileRecord;
 use extractor::MetadataExtractor;
 use image::ImageMetadataExtractor;
 use video::VideoMetadataExtractor;
@@ -29,51 +29,37 @@ impl MetadataService {
         Self { extractors }
     }
 
-    /// Extract metadata from an S3 object
+    /// Extract metadata from file bytes and file record
     /// Will automatically detect the file type and use the appropriate extractor
     pub async fn extract_metadata(
         &self,
-        s3_client: &S3Client,
-        bucket: &str,
-        key: &str,
-        file_size: i64,
+        head_bytes: &[u8],
+        file_record: &FileRecord,
     ) -> Result<MediaMetadata> {
         // Get file extension
-        let extension = Path::new(key)
+        let extension = Path::new(&file_record.file_name)
             .extension()
             .and_then(|ext| ext.to_str())
             .unwrap_or("");
 
-        // Get content type from S3
-        let content_type = match crate::utils::s3::get_object_metadata(s3_client, bucket, key).await
-        {
-            Ok((ct, _)) => ct,
-            Err(_) => None,
-        };
-
         // Find appropriate extractor
         for extractor in &self.extractors {
-            if extractor.can_handle(extension, content_type.as_deref()) {
+            if extractor.can_handle(extension, file_record.content_type.as_deref()) {
                 return extractor
-                    .extract(s3_client, bucket, key, file_size)
+                    .extract(head_bytes, file_record)
                     .await
                     .context("Failed to extract metadata with matched extractor");
             }
         }
 
         // No extractor found - return basic metadata
-        let (content_type, last_modified) =
-            crate::utils::s3::get_object_metadata(s3_client, bucket, key)
-                .await
-                .context("Failed to get S3 object metadata")?;
-
         let mut metadata = MediaMetadata::new_basic(
-            bucket.to_string(),
-            key.to_string(),
-            file_size,
-            last_modified,
+            file_record.bucket.clone(),
+            file_record.file_name.clone(),
+            file_record.file_size,
+            file_record.last_modified.unwrap_or_else(chrono::Utc::now),
         );
-        metadata.content_type = content_type;
+        metadata.content_type = file_record.content_type.clone();
 
         Ok(metadata)
     }

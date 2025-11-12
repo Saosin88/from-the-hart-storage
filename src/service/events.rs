@@ -1,27 +1,15 @@
 use anyhow::{Context, Result};
 use aws_lambda_events::event::{s3::S3Event, sqs::SqsMessage};
-use aws_sdk_s3::Client as S3Client;
 use once_cell::sync::Lazy;
 use serde_json;
 use std::borrow::Cow;
-use std::sync::Arc;
-use tokio::sync::OnceCell;
 use tracing::{debug, error, info};
 
 use super::metadata::MetadataService;
+use crate::repository;
+use crate::service::FileRecord;
 
-static S3_CLIENT: OnceCell<Arc<S3Client>> = OnceCell::const_new();
 static METADATA_SERVICE: Lazy<MetadataService> = Lazy::new(MetadataService::new);
-
-async fn get_s3_client() -> Arc<S3Client> {
-    S3_CLIENT
-        .get_or_init(|| async {
-            let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
-            Arc::new(S3Client::new(&config))
-        })
-        .await
-        .clone()
-}
 
 fn url_decode(s: &str) -> Result<String> {
     urlencoding::decode(s)
@@ -74,9 +62,52 @@ pub async fn process_s3_event_message(sqs_message: &SqsMessage) -> Result<()> {
             "Processing S3 object"
         );
 
-        let s3_client = get_s3_client().await;
+        // Get object metadata from S3 repository
+        let (content_type, last_modified) = repository::s3::get_object_metadata(bucket, &key)
+            .await
+            .context("Failed to get S3 object metadata")?;
+
+        // Map AWS S3 event to domain FileRecord
+        let file_record = FileRecord::with_metadata(
+            bucket.to_string(),
+            key.clone(),
+            size,
+            content_type,
+            Some(last_modified),
+        );
+
+        // Determine how many bytes to fetch based on file type
+        // For images: 512KB is usually enough for headers and EXIF
+        // For videos: 1MB to capture MP4 metadata atoms
+        let num_bytes = if let Some(ref ct) = file_record.content_type {
+            if ct.starts_with("video/") {
+                std::cmp::min(1024 * 1024, size as u64) // 1MB for video
+            } else {
+                std::cmp::min(512 * 1024, size as u64) // 512KB for images
+            }
+        } else {
+            // Default to 512KB if content type unknown
+            std::cmp::min(512 * 1024, size as u64)
+        };
+
+        // Fetch head bytes from S3 repository
+        let head_bytes = repository::s3::fetch_head_bytes(bucket, &key, num_bytes)
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to fetch first {} bytes from S3 for {}/{}",
+                    num_bytes, bucket, key
+                )
+            })?;
+
+        info!(
+            "Fetched {} bytes from S3 for metadata extraction",
+            head_bytes.len()
+        );
+
+        // Extract metadata using pure service layer (no S3 dependencies)
         match METADATA_SERVICE
-            .extract_metadata(&s3_client, bucket, &key, size)
+            .extract_metadata(&head_bytes, &file_record)
             .await
         {
             Ok(metadata) => {
@@ -121,8 +152,8 @@ pub async fn process_s3_event_message(sqs_message: &SqsMessage) -> Result<()> {
                     }
                 }
 
-                // TODO: Future DynamoDB integration
-                // store_metadata_in_dynamodb(metadata).await?;
+                // TODO: Store metadata in DynamoDB repository
+                // repository::dynamodb::store_metadata(&metadata).await?;
             }
             Err(e) => {
                 error!(
