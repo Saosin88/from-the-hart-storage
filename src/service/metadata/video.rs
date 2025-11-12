@@ -1,11 +1,11 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use async_trait::async_trait;
-use aws_sdk_s3::Client as S3Client;
+use chrono::Utc;
 use mp4parse::read_mp4;
 
 use super::extractor::MetadataExtractor;
 use super::types::{MediaMetadata, MediaType, VideoMetadata};
-use crate::utils::s3;
+use crate::service::FileRecord;
 
 pub struct VideoMetadataExtractor;
 
@@ -89,52 +89,29 @@ impl MetadataExtractor for VideoMetadataExtractor {
 
     async fn extract(
         &self,
-        s3_client: &S3Client,
-        bucket: &str,
-        key: &str,
-        file_size: i64,
+        head_bytes: &[u8],
+        file_record: &FileRecord,
     ) -> Result<MediaMetadata> {
-        // Fetch S3 metadata first
-        let (content_type, last_modified) = s3::get_object_metadata(s3_client, bucket, key)
-            .await
-            .context("Failed to get S3 object metadata")?;
-
         // Create basic metadata
         let mut metadata = MediaMetadata::new_basic(
-            bucket.to_string(),
-            key.to_string(),
-            file_size,
-            last_modified,
+            file_record.bucket.clone(),
+            file_record.file_name.clone(),
+            file_record.file_size,
+            file_record.last_modified.unwrap_or_else(Utc::now),
         );
         metadata.media_type = MediaType::Video;
-        metadata.content_type = content_type;
+        metadata.content_type = file_record.content_type.clone();
 
-        // Fetch first 1MB for video header parsing
-        // MP4 metadata is usually in the first part of the file
-        let num_bytes = std::cmp::min(1024 * 1024, file_size as u64);
-
-        match s3::fetch_head_bytes(s3_client, bucket, key, num_bytes).await {
-            Ok(bytes) => {
-                // Try to parse MP4 metadata
-                if let Some(video_meta) = self.parse_mp4_metadata(&bytes) {
-                    metadata.video_metadata = Some(video_meta);
-                } else {
-                    // If parsing fails, still return basic metadata
-                    tracing::warn!(
-                        "Could not parse video metadata for {}/{}. Using basic metadata only.",
-                        bucket,
-                        key
-                    );
-                }
-            }
-            Err(e) => {
-                tracing::error!(
-                    "Failed to fetch video bytes for {}/{}: {:?}. Using basic metadata only.",
-                    bucket,
-                    key,
-                    e
-                );
-            }
+        // Try to parse MP4 metadata from the provided bytes
+        if let Some(video_meta) = self.parse_mp4_metadata(head_bytes) {
+            metadata.video_metadata = Some(video_meta);
+        } else {
+            // If parsing fails, still return basic metadata
+            tracing::warn!(
+                "Could not parse video metadata for {}/{}. Using basic metadata only.",
+                file_record.bucket,
+                file_record.file_name
+            );
         }
 
         Ok(metadata)

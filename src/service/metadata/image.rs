@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use aws_sdk_s3::Client as S3Client;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use exif::{In, Reader, Tag};
 use image::ImageReader;
@@ -8,7 +7,7 @@ use std::collections::HashMap;
 
 use super::extractor::MetadataExtractor;
 use super::types::{ExifData, ImageMetadata, MediaMetadata, MediaType};
-use crate::utils::s3;
+use crate::service::FileRecord;
 
 pub struct ImageMetadataExtractor;
 
@@ -86,44 +85,26 @@ impl MetadataExtractor for ImageMetadataExtractor {
 
     async fn extract(
         &self,
-        s3_client: &S3Client,
-        bucket: &str,
-        key: &str,
-        file_size: i64,
+        head_bytes: &[u8],
+        file_record: &FileRecord,
     ) -> Result<MediaMetadata> {
-        // Fetch S3 metadata first
-        let (content_type, last_modified) = s3::get_object_metadata(s3_client, bucket, key)
-            .await
-            .context("Failed to get S3 object metadata")?;
-
         // Create basic metadata
         let mut metadata = MediaMetadata::new_basic(
-            bucket.to_string(),
-            key.to_string(),
-            file_size,
-            last_modified,
+            file_record.bucket.clone(),
+            file_record.file_name.clone(),
+            file_record.file_size,
+            file_record.last_modified.unwrap_or_else(Utc::now),
         );
         metadata.media_type = MediaType::Image;
-        metadata.content_type = content_type;
+        metadata.content_type = file_record.content_type.clone();
 
-        // Fetch first 512KB for image processing and EXIF data
-        let num_bytes = std::cmp::min(512 * 1024, file_size as u64);
-        let bytes = s3::fetch_head_bytes(s3_client, bucket, key, num_bytes)
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to fetch first {} bytes from S3 for {}/{}",
-                    num_bytes, bucket, key
-                )
-            })?;
-
-        tracing::debug!("Fetched {} bytes from S3 for image processing", bytes.len());
+        tracing::debug!("Processing {} bytes for image metadata", head_bytes.len());
 
         // Parse image dimensions and format
-        let cursor = s3::bytes_to_cursor(bytes.clone());
+        let cursor = std::io::Cursor::new(head_bytes);
         let img_reader = ImageReader::new(cursor)
             .with_guessed_format()
-            .with_context(|| format!("Failed to guess image format for {}/{}", bucket, key))?;
+            .with_context(|| format!("Failed to guess image format for {}/{}", file_record.bucket, file_record.file_name))?;
 
         let format = img_reader
             .format()
@@ -134,12 +115,12 @@ impl MetadataExtractor for ImageMetadataExtractor {
 
         let dimensions = img_reader
             .into_dimensions()
-            .with_context(|| format!("Failed to read image dimensions for {}/{}", bucket, key))?;
+            .with_context(|| format!("Failed to read image dimensions for {}/{}", file_record.bucket, file_record.file_name))?;
 
         let (width, height) = dimensions;
         tracing::debug!("Image dimensions: {}x{}", width, height);
 
-        let exif = self.parse_exif(&bytes);
+        let exif = self.parse_exif(head_bytes);
 
         if let Some(ref exif_data) = exif {
             if let Some(date_time_original) = exif_data.date_time_original {

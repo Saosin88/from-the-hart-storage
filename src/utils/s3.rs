@@ -1,3 +1,16 @@
+//! # Deprecated S3 utilities
+//!
+//! **This module is deprecated.** Use `crate::repository::s3` instead.
+//!
+//! The functions in this module have been moved to the repository layer
+//! to properly separate infrastructure concerns from business logic.
+//!
+//! - `get_object_metadata` → `crate::repository::s3::get_object_metadata`
+//! - `fetch_head_bytes` → `crate::repository::s3::fetch_head_bytes`
+//!
+//! This module is kept for backward compatibility but should not be used
+//! in new code.
+
 use anyhow::{Context, Result};
 use aws_sdk_s3::Client as S3Client;
 use std::io::Cursor;
