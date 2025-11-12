@@ -9,17 +9,25 @@ pub struct ServerConfig {
 }
 
 #[derive(Debug, Deserialize)]
+pub enum HandlerType {
+    HTTP,
+    SQS,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct AppConfig {
     pub environment: String,
     #[serde(default)]
     pub server: Option<ServerConfig>,
+    pub handlertype: HandlerType,
 }
 
 impl AppConfig {
     fn load() -> Result<Self, ConfigError> {
         dotenvy::dotenv().ok();
-
-        let builder = Config::builder().add_source(Environment::with_prefix("APP").separator("_"));
+        
+        let builder = Config::builder()
+            .add_source(Environment::with_prefix("APP").separator("_"));
 
         let settings = builder.build()?;
         settings.try_deserialize()

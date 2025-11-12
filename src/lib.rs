@@ -1,5 +1,9 @@
 pub mod config;
-pub mod controllers;
+pub mod error;
+pub mod handlers;
+pub mod logging;
 pub mod models;
+pub mod repository;
 pub mod routes;
-pub mod services;
+pub mod service;
+pub mod utils;

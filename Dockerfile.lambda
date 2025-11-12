@@ -2,14 +2,18 @@ FROM amazonlinux:2 AS builder
 
 RUN yum update -y && \
     yum install -y gcc openssl-devel && \
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
+    yum clean all && \
+    rm -rf /var/cache/yum
 ENV PATH="/root/.cargo/bin:${PATH}"
 
 WORKDIR /app
 
 #create dependency layer to cache
 COPY Cargo.toml Cargo.lock ./
-RUN mkdir src && echo "fn main() {}" > src/lambda.rs
+RUN mkdir src && \
+    echo "fn main() {}" > src/lambda.rs && \
+    echo "" > src/lib.rs
 RUN cargo build --release --bin bootstrap || true
 
 COPY src ./src

@@ -1,23 +1,17 @@
-mod config;
-mod controllers;
-mod logging;
-mod models;
-mod routes;
-mod services;
+use from_the_hart_storage::{config, logging, routes, utils::time};
 
-use tokio::net::TcpListener;
-use tokio::signal;
+use tokio::{net::TcpListener, signal, signal::unix};
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    services::init_start_time();
+    time::init_start_time();
     config::init_config();
     logging::init_logging();
 
     let app = routes::configure_routes().layer(TraceLayer::new_for_http());
-    
+
     let server_config = config::config().server.as_ref().expect(
         "Server configuration (APP_SERVER_HOST, APP_SERVER_PORT) is required for local execution",
     );
@@ -35,7 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     info!("Server shutdown complete");
-    
+
     Ok(())
 }
 
@@ -48,7 +42,7 @@ async fn shutdown_signal() {
 
     #[cfg(unix)]
     let terminate = async {
-        signal::unix::signal(signal::unix::SignalKind::terminate())
+        unix::signal(unix::SignalKind::terminate())
             .expect("failed to install SIGTERM handler")
             .recv()
             .await;

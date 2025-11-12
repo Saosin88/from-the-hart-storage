@@ -1,21 +1,23 @@
 use crate::{
     models::{ErrorResponse, HealthResponse},
-    services,
+    service::health,
 };
+
 use aide::{axum::IntoApiResponse, transform::TransformOperation};
 use axum::{http::StatusCode, response::IntoResponse, Json};
 
 pub async fn health() -> impl IntoApiResponse {
-    match services::get_health_status() {
+    match health::get_health_status() {
         Ok(status) => (StatusCode::OK, Json(status)).into_response(),
-        Err(e) => {
-            let error_response = ErrorResponse {
+        Err(_) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse {
                 code: "SERVICE_UNAVAILABLE".to_string(),
                 message: "Health check failed".to_string(),
-                details: Some(e.to_string()),
-            };
-            (StatusCode::SERVICE_UNAVAILABLE, Json(error_response)).into_response()
-        }
+                details: None,
+            }),
+        )
+            .into_response(),
     }
 }
 
@@ -51,7 +53,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_health_endpoint_returns_ok_when_service_initialized() {
-        crate::services::init_start_time();
+        crate::utils::time::init_start_time();
         let app = routes::configure_routes();
         let server = TestServer::new(app).unwrap();
         let response = server.get("/storage/health").await;
@@ -63,7 +65,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_health_endpoint_response_structure() {
-        crate::services::init_start_time();
+        crate::utils::time::init_start_time();
         let app = routes::configure_routes();
         let server = TestServer::new(app).unwrap();
         let response = server.get("/storage/health").await;
@@ -77,8 +79,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_health_status_returns_ok() {
-        crate::services::init_start_time();
-        let result = services::get_health_status();
+        crate::utils::time::init_start_time();
+        let result = health::get_health_status();
         assert!(result.is_ok());
         let health = result.unwrap();
         assert_eq!(health.data.status, "ok");
