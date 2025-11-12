@@ -30,43 +30,81 @@ impl ImageMetadataExtractor {
         v.trim().to_string()
     }
 
-    fn parse_exif(&self, bytes: &[u8]) -> Option<ExifData> {
-        let mut cursor = std::io::Cursor::new(bytes);
-        let reader = Reader::new().read_from_container(&mut cursor).ok()?;
+    fn find_exif_marker(bytes: &[u8]) -> Option<usize> {
+        if bytes.len() < 6 {
+            return None;
+        }
 
-        let mut exif_data = ExifData {
-            date_time_original: None,
-            other_fields: HashMap::new(),
-        };
+        // look for ASCII "Exif\0\0" using std library (no extra deps)
+        if let Some(pos) = bytes
+            .windows(6)
+            .position(|w| w == b"Exif\0\0")
+        {
+            // position is at the 'E' of "Exif\0\0"; return approximate start of APP1 marker
+            return Some(pos.saturating_sub(6));
+        }
 
-        if let Some(field) = reader.get_field(Tag::DateTimeOriginal, In::PRIMARY) {
-            let date_str = field.display_value().to_string();
-
-            let parsed_date = NaiveDateTime::parse_from_str(&date_str, "%Y:%m:%d %H:%M:%S")
-                .or_else(|_| NaiveDateTime::parse_from_str(&date_str, "%Y-%m-%d %H:%M:%S"))
-                .ok();
-
-            if let Some(naive_dt) = parsed_date {
-                exif_data.date_time_original =
-                    Some(DateTime::from_naive_utc_and_offset(naive_dt, Utc));
-                tracing::debug!("Parsed DateTimeOriginal: {} -> {:?}", date_str, naive_dt);
-            } else {
-                tracing::warn!("Failed to parse DateTimeOriginal: {}", date_str);
+        // scan for JPEG APP1 marker (0xFF 0xE1)
+        for i in 0..bytes.len().saturating_sub(1) {
+            if bytes[i] == 0xFF && bytes[i + 1] == 0xE1 {
+                return Some(i);
             }
         }
 
-        for field in reader.fields() {
-            let key = field.tag.to_string(); // human-friendly key from exif crate
-            let raw_value = field.display_value().to_string();
-            let value = Self::clean_value(&raw_value);
-            exif_data.other_fields.insert(key, value);
-        }
-
-        Some(exif_data)
+        None
     }
 
-}
+    fn parse_exif(&self, bytes: &[u8]) -> Option<ExifData> {
+        tracing::debug!(buf_len = bytes.len(), "parse_exif: starting");
 
+        if let Some(pos) = Self::find_exif_marker(bytes) {
+            tracing::debug!(exif_marker_offset = pos, "EXIF marker detected in buffer");
+        } else {
+            tracing::debug!("No EXIF marker detected in head bytes");
+        }
+
+        // Use cursor so Reader can Seek/Read
+        let mut cursor = std::io::Cursor::new(bytes);
+
+        // Attempt parse and log parse error if any
+        match Reader::new().read_from_container(&mut cursor) {
+            Ok(reader) => {
+                let mut exif_data = ExifData {
+                    date_time_original: None,
+                    other_fields: HashMap::new(),
+                };
+
+                if let Some(field) = reader.get_field(Tag::DateTimeOriginal, In::PRIMARY) {
+                    let date_str = field.display_value().to_string();
+                    let parsed_date = NaiveDateTime::parse_from_str(&date_str, "%Y:%m:%d %H:%M:%S")
+                        .or_else(|_| NaiveDateTime::parse_from_str(&date_str, "%Y-%m-%d %H:%M:%S"))
+                        .ok();
+
+                    if let Some(naive_dt) = parsed_date {
+                        exif_data.date_time_original =
+                            Some(DateTime::<Utc>::from_utc(naive_dt, Utc));
+                        tracing::debug!(date = %date_str, "Parsed DateTimeOriginal");
+                    } else {
+                        tracing::warn!(date = %date_str, "Could not parse DateTimeOriginal");
+                    }
+                }
+
+                for field in reader.fields() {
+                    let key = field.tag.to_string();
+                    let raw_value = field.display_value().to_string();
+                    let value = Self::clean_value(&raw_value);
+                    exif_data.other_fields.insert(key, value);
+                }
+
+                Some(exif_data)
+            }
+            Err(e) => {
+                tracing::debug!(error = %e, "exif::Reader failed to parse container");
+                None
+            }
+        }
+    }
+}
 #[async_trait]
 impl MetadataExtractor for ImageMetadataExtractor {
     fn can_handle(&self, extension: &str, content_type: Option<&str>) -> bool {

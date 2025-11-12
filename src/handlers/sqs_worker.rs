@@ -1,5 +1,5 @@
 use crate::service::events;
-use aws_lambda_events::event::{s3::S3Event, sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent, SqsMessage}};
+use aws_lambda_events::event::{s3::S3Event, sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent}};
 use tracing::{error, info};
 
 fn url_decode(s: &str) -> anyhow::Result<String> {
