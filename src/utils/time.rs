@@ -45,7 +45,7 @@ pub fn parse_media_datetime_with_offset(date_str: &str, offset: Option<&str>) ->
         }
     }
 
-    let tz = get_default_timezone();
+    let tz = get_timezone();
 
     match tz.from_local_datetime(&naive_dt).single() {
         Some(local_dt) => {
@@ -78,15 +78,15 @@ fn parse_naive_datetime(date_str: &str) -> Option<NaiveDateTime> {
     None
 }
 
-fn get_default_timezone() -> Tz {
+fn get_timezone() -> Tz {
     crate::config::config()
-        .default_timezone
+        .timezone
         .as_ref()
         .and_then(|tz_str| {
             tz_str.parse::<Tz>().ok().or_else(|| {
                 tracing::warn!(
                     timezone = %tz_str,
-                    "Invalid timezone in APP_DEFAULT_TIMEZONE, falling back to UTC"
+                    "Invalid timezone in APP_TIMEZONE, falling back to UTC"
                 );
                 None
             })

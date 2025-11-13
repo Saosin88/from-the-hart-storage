@@ -21,6 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!(
         bind_address = %bind_address,
         environment = %config::config().environment,
+        timezone = ?config::config().timezone,
         "From The Hart Storage starting"
     );
 

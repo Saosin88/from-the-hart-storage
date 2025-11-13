@@ -14,7 +14,7 @@ pub struct AppConfig {
     #[serde(default)]
     pub server: Option<ServerConfig>,
     #[serde(default)]
-    pub default_timezone: Option<String>,
+    pub timezone: Option<String>,
 }
 
 impl AppConfig {

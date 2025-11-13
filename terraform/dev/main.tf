@@ -44,7 +44,7 @@ resource "aws_lambda_function" "from_the_hart_storage_http_worker" {
     variables = {
       APP_ENVIRONMENT      = "dev"
       RUST_LOG             = "INFO"
-      APP_DEFAULT_TIMEZONE = "Africa/Johannesburg"
+      APP_TIMEZONE = "Africa/Johannesburg"
     }
   }
 }
@@ -77,7 +77,7 @@ resource "aws_lambda_function" "from_the_hart_storage_sqs_worker" {
     variables = {
       APP_ENVIRONMENT      = "dev"
       RUST_LOG             = "DEBUG"
-      APP_DEFAULT_TIMEZONE = "Africa/Johannesburg"
+      APP_TIMEZONE = "Africa/Johannesburg"
     }
   }
 }

@@ -13,7 +13,7 @@ async fn main() -> Result<(), Error> {
 
     info!(
         environment = %config::config().environment,
-        default_timezone = ?config::config().default_timezone,
+        timezone = ?config::config().timezone,
         "From The Hart Storage HTTP Handler starting on Lambda"
     );
 
