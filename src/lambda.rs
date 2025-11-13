@@ -1,4 +1,6 @@
-use from_the_hart_storage::{config, handlers::sqs_worker, logging, routes, utils::time};
+use from_the_hart_storage::{
+    config, handlers::http::routes, handlers::sqs::worker, logging, utils::time,
+};
 
 use aws_lambda_events::event::sqs::SqsEvent;
 use lambda_http::Error;
@@ -37,7 +39,7 @@ async fn main() -> Result<(), Error> {
 
             lambda_runtime::run(lambda_runtime::service_fn(
                 |event: LambdaEvent<SqsEvent>| async move {
-                    sqs_worker::handle_sqs_event(event.payload)
+                    worker::handle_sqs_event(event.payload)
                         .await
                         .map_err(|e| format!("Handler error: {}", e))
                 },

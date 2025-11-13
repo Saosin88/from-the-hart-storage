@@ -1,4 +1,4 @@
-use crate::handlers::health;
+use crate::handlers::http::health;
 use aide::{
     axum::{routing, ApiRouter},
     openapi::OpenApi,

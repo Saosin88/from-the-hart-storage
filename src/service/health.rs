@@ -1,23 +1,21 @@
-use crate::{
-    models::{HealthData, HealthResponse},
-    utils::time,
-};
+use crate::{error::StorageError, utils::time};
 
-use crate::error::AppError;
+#[derive(Debug, Clone)]
+pub struct HealthStatus {
+    pub uptime: u64,
+    pub timestamp: u128,
+}
 
-pub fn get_health_status() -> Result<HealthResponse, AppError> {
-    let start_time = time::START_TIME.get().ok_or(AppError::Internal(
-        "Service start time not initialized".to_string(),
-    ))?;
+pub fn get_health_status() -> Result<HealthStatus, StorageError> {
+    let start_time = time::START_TIME.get().ok_or_else(|| {
+        StorageError::NotInitialized("Service start time not initialized".to_string())
+    })?;
+
     let uptime = time::uptime_in_secs(*start_time)
-        .map_err(|e| AppError::Internal(format!("Uptime error: {e}")))?;
+        .map_err(|e| StorageError::Time(format!("Uptime calculation failed: {e}")))?;
+
     let timestamp = time::current_timestamp_millis()
-        .map_err(|e| AppError::Internal(format!("Timestamp error: {e}")))?;
-    Ok(HealthResponse {
-        data: HealthData {
-            status: "ok".to_string(),
-            uptime,
-            timestamp,
-        },
-    })
+        .map_err(|e| StorageError::Time(format!("Timestamp calculation failed: {e}")))?;
+
+    Ok(HealthStatus { uptime, timestamp })
 }

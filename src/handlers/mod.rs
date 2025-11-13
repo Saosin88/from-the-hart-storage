@@ -1,2 +1,2 @@
-pub mod health;
-pub mod sqs_worker;
+pub mod http;
+pub mod sqs;

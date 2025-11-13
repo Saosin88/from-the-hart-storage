@@ -1,5 +1,8 @@
 use crate::{
-    models::{ErrorResponse, HealthResponse},
+    handlers::http::{
+        dto::{HealthData, HealthResponse},
+        error::HttpErrorResponse,
+    },
     service::health,
 };
 
@@ -8,16 +11,20 @@ use axum::{http::StatusCode, response::IntoResponse, Json};
 
 pub async fn health() -> impl IntoApiResponse {
     match health::get_health_status() {
-        Ok(status) => (StatusCode::OK, Json(status)).into_response(),
-        Err(_) => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ErrorResponse {
-                code: "SERVICE_UNAVAILABLE".to_string(),
-                message: "Health check failed".to_string(),
-                details: None,
-            }),
-        )
-            .into_response(),
+        Ok(status) => {
+            let response = HealthResponse {
+                data: HealthData {
+                    status: "ok".to_string(),
+                    uptime: status.uptime,
+                    timestamp: status.timestamp,
+                },
+            };
+            (StatusCode::OK, Json(response)).into_response()
+        }
+        Err(err) => {
+            let http_error = crate::handlers::http::error::HttpError::from(err);
+            http_error.into_response()
+        }
     }
 }
 
@@ -34,12 +41,12 @@ pub fn health_docs(op: TransformOperation) -> TransformOperation {
     .summary("Check service health status")
     .tag("Health")
     .response::<200, Json<HealthResponse>>()
-    .response_with::<503, Json<ErrorResponse>, _>(|res| {
+    .response_with::<503, Json<HttpErrorResponse>, _>(|res| {
         res.description("Service is unavailable or experiencing errors")
-            .example(ErrorResponse {
-                code: "SERVICE_UNAVAILABLE".to_string(),
-                message: "Health check failed".to_string(),
-                details: Some("Time error: Failed to calculate uptime".to_string()),
+            .example(HttpErrorResponse {
+                code: "SERVICE_NOT_INITIALIZED".to_string(),
+                message: "Service is not properly initialized".to_string(),
+                details: Some("Service start time not initialized".to_string()),
             })
     })
 }
@@ -47,7 +54,7 @@ pub fn health_docs(op: TransformOperation) -> TransformOperation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::routes;
+    use crate::handlers::http::routes;
     use axum::http::StatusCode;
     use axum_test::TestServer;
 
@@ -82,8 +89,7 @@ mod tests {
         crate::utils::time::init_start_time();
         let result = health::get_health_status();
         assert!(result.is_ok());
-        let health = result.unwrap();
-        assert_eq!(health.data.status, "ok");
-        assert!(health.data.timestamp > 0);
+        let status = result.unwrap();
+        assert!(status.timestamp > 0);
     }
 }

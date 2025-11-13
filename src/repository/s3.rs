@@ -1,31 +1,28 @@
-use aws_sdk_s3::Client as S3Client;
-use chrono::{DateTime, Utc};
-use std::sync::Arc;
-use tokio::sync::OnceCell;
+use crate::error::StorageError;
 
-use crate::error::AppError;
+use aws_sdk_s3::{operation::head_object::HeadObjectOutput, Client};
+use std::sync::{Arc, OnceLock};
 
-/// Private S3 client singleton
-static S3_CLIENT: OnceCell<Arc<S3Client>> = OnceCell::const_new();
+static S3_CLIENT: OnceLock<Arc<Client>> = OnceLock::new();
 
-/// Initialize and get the S3 client
-async fn get_s3_client() -> Arc<S3Client> {
+async fn get_s3_client() -> Arc<Client> {
     S3_CLIENT
-        .get_or_init(|| async {
-            let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
-            Arc::new(S3Client::new(&config))
+        .get_or_init(|| {
+            let rt = tokio::runtime::Handle::current();
+            let config = rt.block_on(async {
+                aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await
+            });
+            Arc::new(Client::new(&config))
         })
-        .await
         .clone()
 }
 
-/// Get the content type and last modified date from S3 object metadata
 pub async fn get_object_metadata(
     bucket: &str,
     key: &str,
-) -> Result<(Option<String>, DateTime<Utc>), AppError> {
+) -> Result<HeadObjectOutput, StorageError> {
     let s3_client = get_s3_client().await;
-    
+
     let response = s3_client
         .head_object()
         .bucket(bucket)
@@ -33,33 +30,20 @@ pub async fn get_object_metadata(
         .send()
         .await
         .map_err(|e| {
-            AppError::S3Error(format!(
+            StorageError::S3(format!(
                 "Failed to get S3 object metadata for s3://{}/{}: {}",
                 bucket, key, e
             ))
         })?;
 
-    let content_type = response.content_type().map(|s| s.to_string());
-
-    let last_modified = response
-        .last_modified()
-        .and_then(|dt| {
-            chrono::DateTime::parse_from_rfc3339(&dt.to_string())
-                .ok()
-                .map(|dt| dt.with_timezone(&Utc))
-        })
-        .unwrap_or_else(Utc::now);
-
-    Ok((content_type, last_modified))
+    Ok(response)
 }
 
-/// Fetch the first N bytes of an S3 object
-/// Useful for reading file headers to determine format and extract metadata
 pub async fn fetch_head_bytes(
     bucket: &str,
     key: &str,
     num_bytes: u64,
-) -> Result<Vec<u8>, AppError> {
+) -> Result<Vec<u8>, StorageError> {
     let s3_client = get_s3_client().await;
     let range = format!("bytes={}-{}", 0, num_bytes - 1);
 
@@ -71,7 +55,7 @@ pub async fn fetch_head_bytes(
         .send()
         .await
         .map_err(|e| {
-            AppError::S3Error(format!(
+            StorageError::S3(format!(
                 "Failed to fetch byte range {} from S3 object s3://{}/{}: {}",
                 range, bucket, key, e
             ))
@@ -82,7 +66,7 @@ pub async fn fetch_head_bytes(
         .collect()
         .await
         .map_err(|e| {
-            AppError::S3Error(format!(
+            StorageError::S3(format!(
                 "Failed to read S3 response body for s3://{}/{}: {}",
                 bucket, key, e
             ))

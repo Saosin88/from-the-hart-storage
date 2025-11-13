@@ -1,6 +1,6 @@
 use config::{Config, ConfigError, Environment};
-use once_cell::sync::Lazy;
 use serde::Deserialize;
+use std::sync::LazyLock;
 
 #[derive(Debug, Deserialize)]
 pub struct ServerConfig {
@@ -25,21 +25,20 @@ pub struct AppConfig {
 impl AppConfig {
     fn load() -> Result<Self, ConfigError> {
         dotenvy::dotenv().ok();
-        
-        let builder = Config::builder()
-            .add_source(Environment::with_prefix("APP").separator("_"));
+
+        let builder = Config::builder().add_source(Environment::with_prefix("APP").separator("_"));
 
         let settings = builder.build()?;
         settings.try_deserialize()
     }
 }
 
-static CONFIG: Lazy<AppConfig> = Lazy::new(|| {
+static CONFIG: LazyLock<AppConfig> = LazyLock::new(|| {
     AppConfig::load().expect("Failed to load configuration. Check environment variables.")
 });
 
 pub fn init_config() {
-    Lazy::force(&CONFIG);
+    LazyLock::force(&CONFIG);
 }
 
 pub fn config() -> &'static AppConfig {

@@ -1,67 +1,49 @@
 mod extractor;
 mod image;
-mod types;
-mod video;
 
-use anyhow::{Context, Result};
-use std::path::Path;
-
-pub use types::{ExifData, GpsData, ImageMetadata, MediaMetadata, MediaType, VideoMetadata};
-
-use crate::service::FileRecord;
+use crate::service::File;
 use extractor::MetadataExtractor;
 use image::ImageMetadataExtractor;
-use video::VideoMetadataExtractor;
 
-/// Main orchestrator for metadata extraction
+use std::path::Path;
+use tracing::error;
+
 pub struct MetadataService {
     extractors: Vec<Box<dyn MetadataExtractor>>,
 }
 
 impl MetadataService {
-    /// Create a new metadata service with all extractors
     pub fn new() -> Self {
-        let extractors: Vec<Box<dyn MetadataExtractor>> = vec![
-            Box::new(ImageMetadataExtractor::new()),
-            Box::new(VideoMetadataExtractor::new()),
-        ];
+        let extractors: Vec<Box<dyn MetadataExtractor>> =
+            vec![Box::new(ImageMetadataExtractor::new())];
 
         Self { extractors }
     }
 
-    /// Extract metadata from file bytes and file record
-    /// Will automatically detect the file type and use the appropriate extractor
-    pub async fn extract_metadata(
-        &self,
-        head_bytes: &[u8],
-        file_record: &FileRecord,
-    ) -> Result<MediaMetadata> {
-        // Get file extension
-        let extension = Path::new(&file_record.file_name)
+    pub async fn extract_metadata(&self, head_bytes: &[u8], file: &mut File) {
+        let extension = Path::new(&file.file_name)
             .extension()
             .and_then(|ext| ext.to_str())
-            .unwrap_or("");
+            .unwrap_or("")
+            .to_string();
 
-        // Find appropriate extractor
+        let content_type = file.content_type.clone();
+        let file_name = file.file_name.clone();
+        let bucket = file.bucket.clone();
+
         for extractor in &self.extractors {
-            if extractor.can_handle(extension, file_record.content_type.as_deref()) {
-                return extractor
-                    .extract(head_bytes, file_record)
-                    .await
-                    .context("Failed to extract metadata with matched extractor");
+            if extractor.can_handle(&extension, Some(&content_type)) {
+                extractor.extract_and_add_to_file(head_bytes, file).await;
+            } else {
+                error!(
+                    file = %file_name,
+                    bucket = %bucket,
+                    content_type = ?content_type,
+                    extension = %extension,
+                    "no metadata extractor matched this file"
+                );
             }
         }
-
-        // No extractor found - return basic metadata
-        let mut metadata = MediaMetadata::new_basic(
-            file_record.bucket.clone(),
-            file_record.file_name.clone(),
-            file_record.file_size,
-            file_record.last_modified.unwrap_or_else(chrono::Utc::now),
-        );
-        metadata.content_type = file_record.content_type.clone();
-
-        Ok(metadata)
     }
 }
 

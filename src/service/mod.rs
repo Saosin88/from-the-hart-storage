@@ -1,6 +1,6 @@
 pub mod events;
 pub mod health;
 pub mod metadata;
-pub mod types;
+pub mod models;
 
-pub use types::FileRecord;
+pub use models::File;
