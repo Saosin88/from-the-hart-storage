@@ -1,7 +1,8 @@
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+
+use crate::utils::time;
 
 #[derive(Debug, Clone)]
 pub struct HealthStatus {
@@ -15,11 +16,11 @@ pub struct File {
     pub bucket_prefix: Arc<str>,
     pub bucket: Arc<str>,
     pub file_name: Arc<str>,
-    pub created_date: DateTime<Utc>,
-    pub media_type: MediaType,
-    pub content_type: String,
-    pub content_length: i64,
-    pub image_metadata: Option<ImageMetadata>,
+    pub created_date: i64, // Unix timestamp in milliseconds
+    pub size_bytes: i64,
+    pub content_type: String,  // MIME type from S3 (e.g., "image/jpeg")
+    pub media_type: MediaType, // High-level category
+    pub media_metadata: Option<MediaMetadata>, // Polymorphic metadata
 }
 
 impl File {
@@ -34,11 +35,11 @@ impl File {
             bucket_prefix: bucket_prefix.into(),
             bucket: bucket.into(),
             file_name: file_name.into(),
-            created_date: Utc::now(),
-            media_type: MediaType::Unknown,
+            created_date: time::now_as_unix_millis(),
+            size_bytes: 0,
             content_type: String::from("application/octet-stream"),
-            content_length: 0,
-            image_metadata: None,
+            media_type: MediaType::Unknown,
+            media_metadata: None,
         }
     }
 }
@@ -47,13 +48,22 @@ impl File {
 #[serde(rename_all = "lowercase")]
 pub enum MediaType {
     Image,
+    Video,
+    Audio,
+    Document,
     Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum MediaMetadata {
+    Image(ImageMetadata),
+    // Future: Video(VideoMetadata), Audio(AudioMetadata), etc.
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImageMetadata {
     pub width: u32,
     pub height: u32,
-    pub format: String,
-    pub exif_tags: HashMap<String, String>,
+    pub exif: Option<HashMap<String, String>>,
 }

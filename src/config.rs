@@ -13,6 +13,7 @@ pub struct AppConfig {
     pub environment: String,
     #[serde(default)]
     pub server: Option<ServerConfig>,
+    pub default_timezone: Option<String>,
 }
 
 impl AppConfig {

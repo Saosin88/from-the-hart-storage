@@ -1,10 +1,9 @@
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use exif::Reader;
 use std::collections::HashMap;
 
 use super::extractor::MetadataExtractor;
-use crate::service::models::{ImageMetadata, MediaType};
+use crate::service::models::{ImageMetadata, MediaMetadata, MediaType};
 use crate::service::File;
 use crate::utils::{string, time};
 
@@ -15,25 +14,89 @@ impl ImageMetadataExtractor {
         Self
     }
 
-    fn extract_creation_date(&self, exif_tags: &HashMap<String, String>) -> Option<DateTime<Utc>> {
-        let date_tag_priority = [
-            "DateTimeOriginal",
-            "DateTimeDigitized",
-            "DateTime",
-            "CreateDate",
-            "ModifyDate",
+    fn extract_creation_date(&self, exif_tags: &HashMap<String, String>) -> Option<i64> {
+        // Extract GPS coordinates if available
+        let gps_coords = self.extract_gps_coordinates(exif_tags);
+
+        // Priority order for datetime + offset pairs
+        let date_offset_pairs = [
+            ("DateTimeOriginal", "OffsetTimeOriginal"),
+            ("DateTimeDigitized", "OffsetTimeDigitized"),
+            ("DateTime", "OffsetTime"),
+            ("CreateDate", "OffsetTime"),
+            ("ModifyDate", "OffsetTime"),
         ];
 
-        for tag_name in &date_tag_priority {
-            if let Some(date_str) = exif_tags.get(*tag_name) {
-                if let Some(parsed) = time::parse_media_datetime(date_str) {
-                    return Some(parsed);
+        for (date_tag, offset_tag) in &date_offset_pairs {
+            if let Some(date_str) = exif_tags.get(*date_tag) {
+                let offset = exif_tags.get(*offset_tag).map(|s| s.as_str());
+
+                if let Some(timestamp) =
+                    time::parse_media_datetime_with_context(date_str, offset, gps_coords)
+                {
+                    tracing::debug!(
+                        datetime_tag = date_tag,
+                        offset_tag = offset_tag,
+                        offset = ?offset,
+                        gps = ?gps_coords,
+                        timestamp = timestamp,
+                        "Extracted creation date"
+                    );
+                    return Some(timestamp);
                 }
             }
         }
 
         tracing::debug!("No valid EXIF date tags found");
         None
+    }
+
+    fn extract_gps_coordinates(&self, exif_tags: &HashMap<String, String>) -> Option<(f64, f64)> {
+        let lat = exif_tags.get("GPSLatitude")?;
+        let lat_ref = exif_tags.get("GPSLatitudeRef")?;
+        let lon = exif_tags.get("GPSLongitude")?;
+        let lon_ref = exif_tags.get("GPSLongitudeRef")?;
+
+        let latitude = self.parse_gps_coordinate(lat, lat_ref)?;
+        let longitude = self.parse_gps_coordinate(lon, lon_ref)?;
+
+        Some((latitude, longitude))
+    }
+
+    fn parse_gps_coordinate(&self, coord: &str, reference: &str) -> Option<f64> {
+        // GPS coordinates are in format: "deg, min, sec" or "deg"
+        // Example: "33, 55, 11.82" or "33.919950"
+
+        // Try decimal format first
+        if let Ok(value) = coord.parse::<f64>() {
+            let multiplier = if reference == "S" || reference == "W" {
+                -1.0
+            } else {
+                1.0
+            };
+            return Some(value * multiplier);
+        }
+
+        // Try DMS format: "degrees, minutes, seconds"
+        let parts: Vec<&str> = coord.split(',').map(|s| s.trim()).collect();
+
+        let value = match parts.len() {
+            3 => {
+                let deg: f64 = parts[0].parse().ok()?;
+                let min: f64 = parts[1].parse().ok()?;
+                let sec: f64 = parts[2].parse().ok()?;
+                deg + min / 60.0 + sec / 3600.0
+            }
+            1 => parts[0].parse().ok()?,
+            _ => return None,
+        };
+
+        let multiplier = if reference == "S" || reference == "W" {
+            -1.0
+        } else {
+            1.0
+        };
+        Some(value * multiplier)
     }
 
     fn parse_exif(&self, bytes: &[u8]) -> Option<HashMap<String, String>> {
@@ -82,14 +145,8 @@ impl MetadataExtractor for ImageMetadataExtractor {
 
         file.media_type = MediaType::Image;
 
-        let format = match imagesize::image_type(head_bytes) {
-            Ok(img_type) => format!("{:?}", img_type),
-            Err(_) => "Unknown".to_string(),
-        };
-
         let (width, height) = match imagesize::blob_size(head_bytes) {
             Ok(size) => {
-                tracing::debug!("Detected image format: {}", format);
                 tracing::debug!("Image dimensions: {}x{}", size.width, size.height);
                 (Some(size.width as u32), Some(size.height as u32))
             }
@@ -112,11 +169,10 @@ impl MetadataExtractor for ImageMetadataExtractor {
             }
         }
 
-        file.image_metadata = Some(ImageMetadata {
+        file.media_metadata = Some(MediaMetadata::Image(ImageMetadata {
             width: width.unwrap_or_default(),
             height: height.unwrap_or_default(),
-            format,
-            exif_tags: exif_tags.unwrap_or_default(),
-        });
+            exif: exif_tags,
+        }));
     }
 }

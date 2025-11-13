@@ -1,8 +1,10 @@
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+use chrono_tz::Tz;
 use std::{
     sync::OnceLock,
     time::{SystemTime, UNIX_EPOCH},
 };
+use tzf_rs::DefaultFinder;
 
 pub static START_TIME: OnceLock<SystemTime> = OnceLock::new();
 
@@ -17,6 +19,13 @@ pub fn current_timestamp_millis() -> Result<u128, String> {
         .map_err(|e| format!("Failed to get timestamp: {}", e))
 }
 
+pub fn now_as_unix_millis() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("System time is before Unix epoch")
+        .as_millis() as i64
+}
+
 pub fn uptime_in_secs(start_time: SystemTime) -> Result<u64, String> {
     start_time
         .elapsed()
@@ -24,18 +33,114 @@ pub fn uptime_in_secs(start_time: SystemTime) -> Result<u64, String> {
         .map_err(|e| format!("Failed to calculate uptime: {}", e))
 }
 
-pub fn parse_media_datetime(date_str: &str) -> Option<DateTime<Utc>> {
-    if let Ok(naive_dt) = NaiveDateTime::parse_from_str(date_str, "%Y:%m:%d %H:%M:%S") {
-        return Some(DateTime::from_naive_utc_and_offset(naive_dt, Utc));
-    }
-
-    if let Ok(naive_dt) = NaiveDateTime::parse_from_str(date_str, "%Y-%m-%d %H:%M:%S") {
-        return Some(DateTime::from_naive_utc_and_offset(naive_dt, Utc));
-    }
-
+pub fn parse_media_datetime_with_context(
+    date_str: &str,
+    offset: Option<&str>,
+    gps_coords: Option<(f64, f64)>,
+) -> Option<i64> {
     if let Ok(dt) = DateTime::parse_from_rfc3339(date_str) {
-        return Some(dt.with_timezone(&Utc));
+        return Some(dt.timestamp_millis());
+    }
+
+    let naive_dt = parse_naive_datetime(date_str)?;
+
+    if let Some((lat, lon)) = gps_coords {
+        if let Some(tz) = timezone_from_gps(lat, lon) {
+            match tz.from_local_datetime(&naive_dt).single() {
+                Some(local_dt) => {
+                    let utc_dt = local_dt.with_timezone(&Utc);
+                    return Some(utc_dt.timestamp_millis());
+                }
+                None => {
+                    tracing::warn!(
+                        datetime = %date_str,
+                        timezone = %tz.name(),
+                        "Ambiguous datetime for GPS-derived timezone"
+                    );
+                }
+            }
+        }
+    }
+
+    if let Some(offset_str) = offset {
+        if let Some(timestamp) = parse_datetime_with_offset(date_str, offset_str) {
+            return Some(timestamp);
+        }
+    }
+
+    let tz = get_default_timezone();
+
+    match tz.from_local_datetime(&naive_dt).single() {
+        Some(local_dt) => {
+            let utc_dt = local_dt.with_timezone(&Utc);
+            Some(utc_dt.timestamp_millis())
+        }
+        None => None,
+    }
+}
+
+fn parse_datetime_with_offset(date_str: &str, offset: &str) -> Option<i64> {
+    let naive_dt = parse_naive_datetime(date_str)?;
+
+    let datetime_with_offset = format!("{}{}", naive_dt.format("%Y-%m-%dT%H:%M:%S"), offset);
+
+    DateTime::parse_from_rfc3339(&datetime_with_offset)
+        .ok()
+        .map(|dt| dt.timestamp_millis())
+}
+
+fn parse_naive_datetime(date_str: &str) -> Option<NaiveDateTime> {
+    if let Ok(dt) = NaiveDateTime::parse_from_str(date_str, "%Y:%m:%d %H:%M:%S") {
+        return Some(dt);
+    }
+
+    if let Ok(dt) = NaiveDateTime::parse_from_str(date_str, "%Y-%m-%d %H:%M:%S") {
+        return Some(dt);
     }
 
     None
+}
+
+fn get_default_timezone() -> Tz {
+    crate::config::config()
+        .default_timezone
+        .as_ref()
+        .and_then(|tz_str| {
+            tz_str.parse::<Tz>().ok().or_else(|| {
+                tracing::warn!(
+                    timezone = %tz_str,
+                    "Invalid timezone in APP_DEFAULT_TIMEZONE, falling back to UTC"
+                );
+                None
+            })
+        })
+        .unwrap_or(chrono_tz::UTC)
+}
+
+fn timezone_from_gps(latitude: f64, longitude: f64) -> Option<Tz> {
+    static FINDER: OnceLock<DefaultFinder> = OnceLock::new();
+    let finder = FINDER.get_or_init(DefaultFinder::new);
+
+    let tz_name = finder.get_tz_name(longitude, latitude);
+
+    match tz_name.parse::<Tz>() {
+        Ok(tz) => {
+            tracing::debug!(
+                latitude = latitude,
+                longitude = longitude,
+                timezone = %tz.name(),
+                "Resolved timezone from GPS coordinates"
+            );
+            Some(tz)
+        }
+        Err(_) => {
+            tracing::warn!(
+                latitude = latitude,
+                longitude = longitude,
+                tz_name = tz_name,
+                "Failed to parse timezone name from GPS lookup"
+            );
+            None
+        }
+    }
 }
