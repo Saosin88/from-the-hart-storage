@@ -64,7 +64,7 @@ impl ImageMetadataExtractor {
         Some(GpsCoordinates {
             latitude,
             longitude,
-            altitude,
+            altitude: Some(altitude),
         })
     }
 

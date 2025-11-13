@@ -272,11 +272,11 @@ mod tests {
 
     #[test]
     fn test_gps_coordinates_construction() {
-        let coords = GpsCoordinates::new(43.467448, 11.885127, 100.0);
+        let coords = GpsCoordinates::new(43.467448, 11.885127, Some(100.0));
 
         assert!((coords.latitude - 43.467448).abs() < 0.000001);
         assert!((coords.longitude - 11.885127).abs() < 0.000001);
-        assert_eq!(coords.altitude, 100.0);
+        assert_eq!(coords.altitude, Some(100.0));
     }
 
     #[test]
@@ -389,5 +389,35 @@ mod tests {
         let result = parse_coordinate("40 59.999");
         assert!(result.is_some());
         assert!((result.unwrap() - 40.999983).abs() < 0.000001);
+    }
+
+    #[test]
+    fn test_nikon_coolpix_p6000_gps_without_altitude() {
+        let lat = parse_coordinate_with_ref("43 deg 28 min 2.814 sec", Some("N"));
+        assert!(lat.is_some());
+        assert!((lat.unwrap() - 43.467448).abs() < 0.000001);
+
+        let lon = parse_coordinate_with_ref("11 deg 53 min 6.45599999 sec", Some("E"));
+        assert!(lon.is_some());
+        assert!((lon.unwrap() - 11.885127).abs() < 0.000001);
+
+        let coords = GpsCoordinates::new(lat.unwrap(), lon.unwrap(), None);
+        assert!((coords.latitude - 43.467448).abs() < 0.000001);
+        assert!((coords.longitude - 11.885127).abs() < 0.000001);
+        assert_eq!(coords.altitude, None);
+    }
+
+    #[test]
+    fn test_missing_altitude_returns_none() {
+        let altitude = parse_altitude_with_ref("", None);
+        assert_eq!(altitude, None);
+    }
+
+    #[test]
+    fn test_southern_hemisphere() {
+        let coords = GpsCoordinates::new(-33.918861, 18.423300, Some(10.0));
+        assert!(coords.latitude < 0.0);
+        assert!(coords.longitude > 0.0);
+        assert_eq!(coords.altitude, Some(10.0));
     }
 }

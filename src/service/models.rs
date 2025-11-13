@@ -68,15 +68,15 @@ pub struct ImageMetadata {
     pub gps: Option<GpsCoordinates>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GpsCoordinates {
     pub latitude: f64,
     pub longitude: f64,
-    pub altitude: f64,
+    pub altitude: Option<f64>,
 }
 
 impl GpsCoordinates {
-    pub fn new(latitude: f64, longitude: f64, altitude: f64) -> Self {
+    pub fn new(latitude: f64, longitude: f64, altitude: Option<f64>) -> Self {
         Self {
             latitude,
             longitude,
