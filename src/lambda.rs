@@ -11,18 +11,9 @@ use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    // Initialize logging first so we can see errors
     logging::init_logging();
-    
-    info!("Lambda function starting - initializing components");
-    
-    // Initialize time tracking
     time::init_start_time();
-    info!("Time tracking initialized");
-    
-    // Initialize configuration (this loads environment variables)
     config::init_config();
-    info!("Configuration loaded");
 
     let handler_type = &config::config().handlertype;
 
