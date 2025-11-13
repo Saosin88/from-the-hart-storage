@@ -16,11 +16,11 @@ pub struct File {
     pub bucket_prefix: Arc<str>,
     pub bucket: Arc<str>,
     pub file_name: Arc<str>,
-    pub created_date: i64, // Unix timestamp in milliseconds
+    pub created_date: i64,
     pub size_bytes: i64,
-    pub content_type: String,  // MIME type from S3 (e.g., "image/jpeg")
-    pub media_type: MediaType, // High-level category
-    pub media_metadata: Option<MediaMetadata>, // Polymorphic metadata
+    pub content_type: String,
+    pub media_type: MediaType,
+    pub media_metadata: Option<MediaMetadata>,
 }
 
 impl File {

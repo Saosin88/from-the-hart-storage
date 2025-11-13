@@ -76,7 +76,7 @@ resource "aws_lambda_function" "from_the_hart_storage_sqs_worker" {
   environment {
     variables = {
       APP_ENVIRONMENT      = "dev"
-      RUST_LOG             = "DEBUG"
+      RUST_LOG             = "INFO"
       APP_TIMEZONE = "Africa/Johannesburg"
     }
   }
