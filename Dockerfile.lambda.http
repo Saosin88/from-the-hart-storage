@@ -10,19 +10,19 @@ WORKDIR /app
 
 COPY Cargo.toml Cargo.lock ./
 RUN mkdir src && \
-    echo "fn main() {}" > src/lambda.rs && \
+    echo "fn main() {}" > src/lambda_http.rs && \
     echo "" > src/lib.rs
-RUN cargo build --release --bin bootstrap || true
+RUN cargo build --release --bin bootstrap-http --features http --no-default-features || true
 
 COPY src ./src
-RUN cargo build --release --bin bootstrap
-RUN strip /app/target/release/bootstrap
+RUN cargo build --release --bin bootstrap-http --features http --no-default-features
+RUN strip /app/target/release/bootstrap-http
 
 FROM public.ecr.aws/lambda/provided:al2023
 
 WORKDIR /var/task
 
-COPY --from=builder /app/target/release/bootstrap ./bootstrap
+COPY --from=builder /app/target/release/bootstrap-http ./bootstrap
 
 RUN chmod +x ./bootstrap
 

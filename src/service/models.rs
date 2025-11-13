@@ -3,6 +3,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+#[derive(Debug, Clone)]
+pub struct HealthStatus {
+    pub uptime: u64,
+    pub timestamp: u128,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct File {
     pub bucket_key: Arc<str>,

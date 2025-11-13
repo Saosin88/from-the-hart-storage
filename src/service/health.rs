@@ -1,10 +1,5 @@
+use super::models::HealthStatus;
 use crate::{error::StorageError, utils::time};
-
-#[derive(Debug, Clone)]
-pub struct HealthStatus {
-    pub uptime: u64,
-    pub timestamp: u128,
-}
 
 pub fn get_health_status() -> Result<HealthStatus, StorageError> {
     let start_time = time::START_TIME.get().ok_or_else(|| {

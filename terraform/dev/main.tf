@@ -20,15 +20,20 @@ module "from_the_hart_storage_notifications" {
   name_prefix = "from-the-hart-storage-dev"
 }
 
-variable "lambda_image_uri" {
-  description = "ECR image URI for the Lambda function"
+variable "lambda_image_uri_http" {
+  description = "ECR image URI for the HTTP Lambda function"
+  type        = string
+}
+
+variable "lambda_image_uri_sqs" {
+  description = "ECR image URI for the SQS Lambda function"
   type        = string
 }
 
 resource "aws_lambda_function" "from_the_hart_storage_http_worker" {
   function_name = "from-the-hart-storage-http-worker-dev"
   package_type  = "Image"
-  image_uri     = var.lambda_image_uri
+  image_uri     = var.lambda_image_uri_http
   memory_size   = 256
   timeout       = 10
   role          = data.terraform_remote_state.shared.outputs.from_the_hart_lambda_role_arn
@@ -61,7 +66,7 @@ resource "aws_cloudwatch_log_group" "from_the_hart_storage_log_group" {
 resource "aws_lambda_function" "from_the_hart_storage_sqs_worker" {
   function_name = "from-the-hart-storage-sqs-worker-dev"
   package_type  = "Image"
-  image_uri     = var.lambda_image_uri
+  image_uri     = var.lambda_image_uri_sqs
   memory_size   = 512
   timeout       = 300
   role          = data.terraform_remote_state.shared.outputs.from_the_hart_lambda_role_arn

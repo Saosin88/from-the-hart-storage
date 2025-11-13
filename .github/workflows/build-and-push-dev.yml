@@ -30,18 +30,28 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push image to Amazon ECR
+      - name: Build and push HTTP image to Amazon ECR
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: Dockerfile.lambda
+          file: Dockerfile.lambda.http
           push: true
           tags: |
-            ${{ secrets.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY }}:dev-${{ github.run_number }}
-          build-args: |
-            APP_ENVIRONMENT=dev
-          cache-from: type=gha,scope=${{ github.ref }}
-          cache-to: type=gha,scope=${{ github.ref }},mode=max
+            ${{ secrets.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY }}:http-dev-${{ github.run_number }}
+          cache-from: type=gha,scope=${{ github.ref }}-http
+          cache-to: type=gha,scope=${{ github.ref }}-http,mode=max
+          provenance: false
+
+      - name: Build and push SQS image to Amazon ECR
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.lambda.sqs
+          push: true
+          tags: |
+            ${{ secrets.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY }}:sqs-dev-${{ github.run_number }}
+          cache-from: type=gha,scope=${{ github.ref }}-sqs
+          cache-to: type=gha,scope=${{ github.ref }}-sqs,mode=max
           provenance: false
 
       - name: Setup Terraform
@@ -54,4 +64,5 @@ jobs:
           cd terraform/dev
           terraform init
           terraform apply -auto-approve \
-            -var="lambda_image_uri=${{ secrets.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY }}:dev-${{ github.run_number }}"
+            -var="lambda_image_uri_http=${{ secrets.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY }}:http-dev-${{ github.run_number }}" \
+            -var="lambda_image_uri_sqs=${{ secrets.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY }}:sqs-dev-${{ github.run_number }}"

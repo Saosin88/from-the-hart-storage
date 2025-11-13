@@ -1,0 +1,29 @@
+FROM amazonlinux:2023 AS builder
+
+RUN dnf update -y && \
+    dnf install -y gcc openssl-devel tar gzip && \
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
+    dnf clean all
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+WORKDIR /app
+
+COPY Cargo.toml Cargo.lock ./
+RUN mkdir src && \
+    echo "fn main() {}" > src/lambda_sqs.rs && \
+    echo "" > src/lib.rs
+RUN cargo build --release --bin bootstrap-sqs --features sqs --no-default-features || true
+
+COPY src ./src
+RUN cargo build --release --bin bootstrap-sqs --features sqs --no-default-features
+RUN strip /app/target/release/bootstrap-sqs
+
+FROM public.ecr.aws/lambda/provided:al2023
+
+WORKDIR /var/task
+
+COPY --from=builder /app/target/release/bootstrap-sqs ./bootstrap
+
+RUN chmod +x ./bootstrap
+
+ENTRYPOINT [ "./bootstrap" ]
