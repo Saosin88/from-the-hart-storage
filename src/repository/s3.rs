@@ -9,8 +9,11 @@ static S3_CLIENT: OnceCell<Arc<Client>> = OnceCell::const_new();
 async fn get_s3_client() -> Arc<Client> {
     S3_CLIENT
         .get_or_init(|| async {
+            tracing::info!("Initializing S3 client");
             let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
-            Arc::new(Client::new(&config))
+            let client = Client::new(&config);
+            tracing::info!("S3 client initialized successfully");
+            Arc::new(client)
         })
         .await
         .clone()
