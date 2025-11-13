@@ -21,7 +21,7 @@ impl MetadataService {
     }
 
     pub async fn extract_metadata(&self, head_bytes: &[u8], file: &mut File) {
-        let extension = Path::new(&file.file_name)
+        let extension = Path::new(file.file_name.as_ref())
             .extension()
             .and_then(|ext| ext.to_str())
             .unwrap_or("")

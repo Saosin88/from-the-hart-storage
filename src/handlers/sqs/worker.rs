@@ -15,14 +15,14 @@ pub async fn handle_sqs_event(event: SqsEvent) -> Result<SqsBatchResponse, Stora
     let mut failures = Vec::new();
 
     for record in event.records {
-        let message_id = record.message_id.clone().unwrap_or_default();
+        let message_id = record.message_id.as_deref().unwrap_or("");
 
         let body = if let Some(b) = record.body.as_deref() {
             b
         } else {
             error!(message_id = %message_id, "SQS message has no body");
             failures.push(BatchItemFailure {
-                item_identifier: message_id.clone(),
+                item_identifier: message_id.to_string(),
             });
             continue;
         };
@@ -32,15 +32,15 @@ pub async fn handle_sqs_event(event: SqsEvent) -> Result<SqsBatchResponse, Stora
             Err(e) => {
                 error!(message_id = %message_id, error = %e, "Failed to parse S3 event from SQS body");
                 failures.push(BatchItemFailure {
-                    item_identifier: message_id.clone(),
+                    item_identifier: message_id.to_string(),
                 });
                 continue;
             }
         };
 
         for rec in s3_event.records {
-            let bucket = if let Some(b) = rec.s3.bucket.name.as_ref() {
-                b.clone()
+            let bucket = if let Some(b) = rec.s3.bucket.name.as_deref() {
+                b
             } else {
                 error!(message_id = %message_id, "S3 record missing bucket name");
                 continue;
@@ -70,15 +70,17 @@ pub async fn handle_sqs_event(event: SqsEvent) -> Result<SqsBatchResponse, Stora
                 (String::from("/"), key.clone())
             };
 
-            let file = File::new(key.clone(), bucket_prefix, bucket.clone(), file_name);
+            // Clone key for logging since it will be moved into File
+            let key_for_logging = key.clone();
+            let file = File::new(key, bucket_prefix, bucket.to_string(), file_name);
 
             if let Err(e) = events::process_s3_event_message(file).await {
-                error!(message_id = %message_id, bucket = %bucket, key = %key, error = %e, "Failed to process file record");
+                error!(message_id = %message_id, bucket = %bucket, key = %key_for_logging, error = %e, "Failed to process file record");
                 failures.push(BatchItemFailure {
-                    item_identifier: message_id.clone(),
+                    item_identifier: message_id.to_string(),
                 });
             } else {
-                info!(message_id = %message_id, bucket = %bucket, key = %key, "Successfully processed file record");
+                info!(message_id = %message_id, bucket = %bucket, key = %key_for_logging, "Successfully processed file record");
             }
         }
     }

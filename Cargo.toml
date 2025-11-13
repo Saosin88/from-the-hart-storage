@@ -13,7 +13,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.145"
 config = "0.15"
 dotenvy = "0.15"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "signal", "net"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-error = "0.2"

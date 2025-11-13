@@ -1,13 +1,14 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct File {
-    pub bucket_key: String,
-    pub bucket_prefix: String,
-    pub bucket: String,
-    pub file_name: String,
+    pub bucket_key: Arc<str>,
+    pub bucket_prefix: Arc<str>,
+    pub bucket: Arc<str>,
+    pub file_name: Arc<str>,
     pub created_date: DateTime<Utc>,
     pub media_type: MediaType,
     pub content_type: String,
@@ -23,10 +24,10 @@ impl File {
         file_name: String,
     ) -> Self {
         Self {
-            bucket_key,
-            bucket_prefix,
-            bucket,
-            file_name,
+            bucket_key: bucket_key.into(),
+            bucket_prefix: bucket_prefix.into(),
+            bucket: bucket.into(),
+            file_name: file_name.into(),
             created_date: Utc::now(),
             media_type: MediaType::Unknown,
             content_type: String::from("application/octet-stream"),
