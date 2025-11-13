@@ -9,17 +9,10 @@ pub struct ServerConfig {
 }
 
 #[derive(Debug, Deserialize)]
-pub enum HandlerType {
-    HTTP,
-    SQS,
-}
-
-#[derive(Debug, Deserialize)]
 pub struct AppConfig {
     pub environment: String,
     #[serde(default)]
     pub server: Option<ServerConfig>,
-    pub handlertype: HandlerType,
 }
 
 impl AppConfig {
