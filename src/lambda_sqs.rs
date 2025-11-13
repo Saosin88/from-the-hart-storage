@@ -12,6 +12,7 @@ async fn main() -> Result<(), Error> {
 
     info!(
         environment = %config::config().environment,
+        default_timezone = ?config::config().default_timezone,
         "From The Hart Storage SQS Handler starting on Lambda"
     );
 
