@@ -29,7 +29,7 @@ pub async fn process_s3_event_message(mut file: File) -> Result<(), StorageError
 
             if let Some(lm) = response.last_modified() {
                 if let Some(timestamp) =
-                    time::parse_media_datetime_with_context(&lm.to_string(), None, None)
+                    time::parse_media_datetime_with_offset(&lm.to_string(), None)
                 {
                     file.created_date = timestamp;
                 } else {

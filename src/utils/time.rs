@@ -4,7 +4,6 @@ use std::{
     sync::OnceLock,
     time::{SystemTime, UNIX_EPOCH},
 };
-use tzf_rs::DefaultFinder;
 
 pub static START_TIME: OnceLock<SystemTime> = OnceLock::new();
 
@@ -33,34 +32,12 @@ pub fn uptime_in_secs(start_time: SystemTime) -> Result<u64, String> {
         .map_err(|e| format!("Failed to calculate uptime: {}", e))
 }
 
-pub fn parse_media_datetime_with_context(
-    date_str: &str,
-    offset: Option<&str>,
-    gps_coords: Option<(f64, f64)>,
-) -> Option<i64> {
+pub fn parse_media_datetime_with_offset(date_str: &str, offset: Option<&str>) -> Option<i64> {
     if let Ok(dt) = DateTime::parse_from_rfc3339(date_str) {
         return Some(dt.timestamp_millis());
     }
 
     let naive_dt = parse_naive_datetime(date_str)?;
-
-    if let Some((lat, lon)) = gps_coords {
-        if let Some(tz) = timezone_from_gps(lat, lon) {
-            match tz.from_local_datetime(&naive_dt).single() {
-                Some(local_dt) => {
-                    let utc_dt = local_dt.with_timezone(&Utc);
-                    return Some(utc_dt.timestamp_millis());
-                }
-                None => {
-                    tracing::warn!(
-                        datetime = %date_str,
-                        timezone = %tz.name(),
-                        "Ambiguous datetime for GPS-derived timezone"
-                    );
-                }
-            }
-        }
-    }
 
     if let Some(offset_str) = offset {
         if let Some(timestamp) = parse_datetime_with_offset(date_str, offset_str) {
@@ -115,32 +92,4 @@ fn get_default_timezone() -> Tz {
             })
         })
         .unwrap_or(chrono_tz::UTC)
-}
-
-fn timezone_from_gps(latitude: f64, longitude: f64) -> Option<Tz> {
-    static FINDER: OnceLock<DefaultFinder> = OnceLock::new();
-    let finder = FINDER.get_or_init(DefaultFinder::new);
-
-    let tz_name = finder.get_tz_name(longitude, latitude);
-
-    match tz_name.parse::<Tz>() {
-        Ok(tz) => {
-            tracing::debug!(
-                latitude = latitude,
-                longitude = longitude,
-                timezone = %tz.name(),
-                "Resolved timezone from GPS coordinates"
-            );
-            Some(tz)
-        }
-        Err(_) => {
-            tracing::warn!(
-                latitude = latitude,
-                longitude = longitude,
-                tz_name = tz_name,
-                "Failed to parse timezone name from GPS lookup"
-            );
-            None
-        }
-    }
 }

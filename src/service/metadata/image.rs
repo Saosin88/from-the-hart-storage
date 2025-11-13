@@ -15,10 +15,6 @@ impl ImageMetadataExtractor {
     }
 
     fn extract_creation_date(&self, exif_tags: &HashMap<String, String>) -> Option<i64> {
-        // Extract GPS coordinates if available
-        let gps_coords = self.extract_gps_coordinates(exif_tags);
-
-        // Priority order for datetime + offset pairs
         let date_offset_pairs = [
             ("DateTimeOriginal", "OffsetTimeOriginal"),
             ("DateTimeDigitized", "OffsetTimeDigitized"),
@@ -31,17 +27,7 @@ impl ImageMetadataExtractor {
             if let Some(date_str) = exif_tags.get(*date_tag) {
                 let offset = exif_tags.get(*offset_tag).map(|s| s.as_str());
 
-                if let Some(timestamp) =
-                    time::parse_media_datetime_with_context(date_str, offset, gps_coords)
-                {
-                    tracing::debug!(
-                        datetime_tag = date_tag,
-                        offset_tag = offset_tag,
-                        offset = ?offset,
-                        gps = ?gps_coords,
-                        timestamp = timestamp,
-                        "Extracted creation date"
-                    );
+                if let Some(timestamp) = time::parse_media_datetime_with_offset(date_str, offset) {
                     return Some(timestamp);
                 }
             }
@@ -49,54 +35,6 @@ impl ImageMetadataExtractor {
 
         tracing::debug!("No valid EXIF date tags found");
         None
-    }
-
-    fn extract_gps_coordinates(&self, exif_tags: &HashMap<String, String>) -> Option<(f64, f64)> {
-        let lat = exif_tags.get("GPSLatitude")?;
-        let lat_ref = exif_tags.get("GPSLatitudeRef")?;
-        let lon = exif_tags.get("GPSLongitude")?;
-        let lon_ref = exif_tags.get("GPSLongitudeRef")?;
-
-        let latitude = self.parse_gps_coordinate(lat, lat_ref)?;
-        let longitude = self.parse_gps_coordinate(lon, lon_ref)?;
-
-        Some((latitude, longitude))
-    }
-
-    fn parse_gps_coordinate(&self, coord: &str, reference: &str) -> Option<f64> {
-        // GPS coordinates are in format: "deg, min, sec" or "deg"
-        // Example: "33, 55, 11.82" or "33.919950"
-
-        // Try decimal format first
-        if let Ok(value) = coord.parse::<f64>() {
-            let multiplier = if reference == "S" || reference == "W" {
-                -1.0
-            } else {
-                1.0
-            };
-            return Some(value * multiplier);
-        }
-
-        // Try DMS format: "degrees, minutes, seconds"
-        let parts: Vec<&str> = coord.split(',').map(|s| s.trim()).collect();
-
-        let value = match parts.len() {
-            3 => {
-                let deg: f64 = parts[0].parse().ok()?;
-                let min: f64 = parts[1].parse().ok()?;
-                let sec: f64 = parts[2].parse().ok()?;
-                deg + min / 60.0 + sec / 3600.0
-            }
-            1 => parts[0].parse().ok()?,
-            _ => return None,
-        };
-
-        let multiplier = if reference == "S" || reference == "W" {
-            -1.0
-        } else {
-            1.0
-        };
-        Some(value * multiplier)
     }
 
     fn parse_exif(&self, bytes: &[u8]) -> Option<HashMap<String, String>> {
