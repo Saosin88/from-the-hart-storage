@@ -47,24 +47,25 @@ impl ImageMetadataExtractor {
         let lon_str = exif_tags.get("GPSLongitude")?;
         let lon_ref = exif_tags.get("GPSLongitudeRef").map(|s| s.as_str());
 
-        let alt_str = exif_tags.get("GPSAltitude")?;
-        let alt_ref = exif_tags.get("GPSAltitudeRef").map(|s| s.as_str());
-
         let latitude = gps::parse_coordinate_with_ref(lat_str, lat_ref)?;
         let longitude = gps::parse_coordinate_with_ref(lon_str, lon_ref)?;
-        let altitude = gps::parse_altitude_with_ref(alt_str, alt_ref)?;
+
+        let altitude = exif_tags.get("GPSAltitude").and_then(|alt_str| {
+            let alt_ref = exif_tags.get("GPSAltitudeRef").map(|s| s.as_str());
+            gps::parse_altitude_with_ref(alt_str, alt_ref)
+        });
 
         tracing::debug!(
             latitude = latitude,
             longitude = longitude,
-            altitude = altitude,
+            altitude = ?altitude,
             "Extracted GPS coordinates from EXIF tags"
         );
 
         Some(GpsCoordinates {
             latitude,
             longitude,
-            altitude: Some(altitude),
+            altitude,
         })
     }
 
