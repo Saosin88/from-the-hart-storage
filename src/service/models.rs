@@ -58,7 +58,6 @@ pub enum MediaType {
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum MediaMetadata {
     Image(ImageMetadata),
-    // Future: Video(VideoMetadata), Audio(AudioMetadata), etc.
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,4 +65,22 @@ pub struct ImageMetadata {
     pub width: u32,
     pub height: u32,
     pub exif: Option<HashMap<String, String>>,
+    pub gps: Option<GpsCoordinates>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GpsCoordinates {
+    pub latitude: f64,
+    pub longitude: f64,
+    pub altitude: f64,
+}
+
+impl GpsCoordinates {
+    pub fn new(latitude: f64, longitude: f64, altitude: f64) -> Self {
+        Self {
+            latitude,
+            longitude,
+            altitude,
+        }
+    }
 }

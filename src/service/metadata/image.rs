@@ -3,9 +3,9 @@ use exif::Reader;
 use std::collections::HashMap;
 
 use super::extractor::MetadataExtractor;
-use crate::service::models::{ImageMetadata, MediaMetadata, MediaType};
+use crate::service::models::{GpsCoordinates, ImageMetadata, MediaMetadata, MediaType};
 use crate::service::File;
-use crate::utils::{string, time};
+use crate::utils::{gps, string, time};
 
 pub struct ImageMetadataExtractor;
 
@@ -35,6 +35,37 @@ impl ImageMetadataExtractor {
 
         tracing::debug!("No valid EXIF date tags found");
         None
+    }
+
+    fn extract_gps_coordinates(
+        &self,
+        exif_tags: &HashMap<String, String>,
+    ) -> Option<GpsCoordinates> {
+        let lat_str = exif_tags.get("GPSLatitude")?;
+        let lat_ref = exif_tags.get("GPSLatitudeRef").map(|s| s.as_str());
+
+        let lon_str = exif_tags.get("GPSLongitude")?;
+        let lon_ref = exif_tags.get("GPSLongitudeRef").map(|s| s.as_str());
+
+        let alt_str = exif_tags.get("GPSAltitude")?;
+        let alt_ref = exif_tags.get("GPSAltitudeRef").map(|s| s.as_str());
+
+        let latitude = gps::parse_coordinate_with_ref(lat_str, lat_ref)?;
+        let longitude = gps::parse_coordinate_with_ref(lon_str, lon_ref)?;
+        let altitude = gps::parse_altitude_with_ref(alt_str, alt_ref)?;
+
+        tracing::debug!(
+            latitude = latitude,
+            longitude = longitude,
+            altitude = altitude,
+            "Extracted GPS coordinates from EXIF tags"
+        );
+
+        Some(GpsCoordinates {
+            latitude,
+            longitude,
+            altitude,
+        })
     }
 
     fn parse_exif(&self, bytes: &[u8]) -> Option<HashMap<String, String>> {
@@ -100,17 +131,20 @@ impl MetadataExtractor for ImageMetadataExtractor {
         };
 
         let exif_tags = self.parse_exif(head_bytes);
+        let mut gps_coords = None;
 
         if let Some(ref tags) = exif_tags {
             if let Some(created_date) = self.extract_creation_date(tags) {
                 file.created_date = created_date;
             }
+            gps_coords = self.extract_gps_coordinates(tags);
         }
 
         file.media_metadata = Some(MediaMetadata::Image(ImageMetadata {
             width: width.unwrap_or_default(),
             height: height.unwrap_or_default(),
             exif: exif_tags,
+            gps: gps_coords,
         }));
     }
 }
