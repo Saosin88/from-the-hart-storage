@@ -20,6 +20,31 @@ module "from_the_hart_storage_notifications" {
   name_prefix = "from-the-hart-storage-dev"
 }
 
+# File Sharing Service DynamoDB Table and Infrastructure
+module "file_sharing" {
+  source = "../modules/file_sharing_dynamodb"
+
+  table_name   = "FileMetadata-dev"
+  name_prefix  = "from-the-hart-storage-dev"
+  environment  = "dev"
+  lambda_role_arn = data.terraform_remote_state.shared.outputs.from_the_hart_lambda_role_arn
+
+  # Lambda functions will be added when stream processor and cleanup worker are implemented
+  create_stream_processor = false
+  create_cleanup_worker   = false
+
+  enable_point_in_time_recovery = true
+  log_retention_days            = 14
+  log_level                     = "INFO"
+
+  tags = {
+    Domain      = "tech"
+    Project     = "from-the-hart-storage"
+    Environment = "dev"
+    Terraform   = "true"
+  }
+}
+
 variable "lambda_image_uri_http" {
   description = "ECR image URI for the HTTP Lambda function"
   type        = string
@@ -42,9 +67,11 @@ resource "aws_lambda_function" "from_the_hart_storage_http_worker" {
 
   environment {
     variables = {
-      APP_ENVIRONMENT      = "dev"
-      RUST_LOG             = "INFO"
-      APP_TIMEZONE = "Africa/Johannesburg"
+      APP_ENVIRONMENT       = "dev"
+      RUST_LOG              = "INFO"
+      APP_TIMEZONE          = "Africa/Johannesburg"
+      DYNAMODB_TABLE_NAME   = module.file_sharing.table_name
+      SQS_CLEANUP_QUEUE_URL = module.file_sharing.cleanup_queue_url
     }
   }
 }
@@ -75,9 +102,11 @@ resource "aws_lambda_function" "from_the_hart_storage_sqs_worker" {
 
   environment {
     variables = {
-      APP_ENVIRONMENT      = "dev"
-      RUST_LOG             = "INFO"
-      APP_TIMEZONE = "Africa/Johannesburg"
+      APP_ENVIRONMENT       = "dev"
+      RUST_LOG              = "INFO"
+      APP_TIMEZONE          = "Africa/Johannesburg"
+      DYNAMODB_TABLE_NAME   = module.file_sharing.table_name
+      SQS_CLEANUP_QUEUE_URL = module.file_sharing.cleanup_queue_url
     }
   }
 }
