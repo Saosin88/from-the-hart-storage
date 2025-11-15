@@ -26,3 +26,24 @@ pub enum StorageError {
     #[error("Serialization error: {0}")]
     Serialization(String),
 }
+
+#[derive(Debug, Error)]
+pub enum ServiceError {
+    #[error("Not found: {0}")]
+    NotFound(String),
+
+    #[error("Bad request: {0}")]
+    BadRequest(String),
+
+    #[error("Unauthorized: {0}")]
+    Unauthorized(String),
+
+    #[error("Forbidden: {0}")]
+    Forbidden(String),
+
+    #[error("Internal server error: {0}")]
+    InternalServerError(String),
+
+    #[error("DynamoDB error: {0}")]
+    DynamoDb(String),
+}

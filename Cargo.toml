@@ -36,10 +36,13 @@ tracing-error = "0.2"
 thiserror = "2.0.17"
 aws-config = "1.5.17"
 aws-sdk-s3 = "1.69.0"
+aws-sdk-dynamodb = "1.59.0"
+aws-sdk-sqs = "1.59.0"
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 async-trait = "0.1"
 urlencoding = "2.1"
+uuid = { version = "1.11", features = ["v4", "serde"] }
 
 [dev-dependencies]
 axum-test = "18.2"

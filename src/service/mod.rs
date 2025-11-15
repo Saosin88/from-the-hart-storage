@@ -8,5 +8,6 @@ pub mod events;
 pub mod metadata;
 
 pub mod models;
+pub mod file_sharing;
 
 pub use models::{File, HealthStatus};
