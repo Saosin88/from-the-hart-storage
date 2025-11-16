@@ -4,11 +4,6 @@ billing_mode = "PAY_PER_REQUEST"
 hash_key = "PK"
 range_key = "SK"
 
-# Enable DynamoDB Streams for automatic VIEW_LINK maintenance
-
-stream_enabled = true
-stream_view_type = "NEW_AND_OLD_IMAGES"
-
 # Base Table Attributes
 
 attribute { name = "PK" type = "S" }
@@ -115,101 +110,89 @@ ManagedBy = "Terraform"
 }
 }
 
-# Lambda function for DynamoDB Streams processing (VIEW_LINK maintenance)
-
-resource "aws_lambda_function" "stream_processor" {
-filename = "stream_processor.zip"
-function_name = "file-metadata-stream-processor"
-role = aws_iam_role.lambda_stream_processor.arn
-handler = "bootstrap"
-runtime = "provided.al2" # Rust custom runtime
-timeout = 300
-memory_size = 512
-
-environment {
-variables = {
-TABLE_NAME = aws_dynamodb_table.file_metadata.name
 }
 }
 
-tags = {
-Name = "StreamProcessor"
-Service = "FileSharing"
-}
-}
+# S3 Event Processing Infrastructure
 
-# Event source mapping for DynamoDB Streams
+# Processes S3 ObjectCreated and ObjectRemoved events to maintain DynamoDB metadata
 
-# Processes FILE and SHARE_GRANT changes to maintain VIEW_LINKs and folder markers
+# SQS Queue for S3 events
 
-resource "aws_lambda_event_source_mapping" "stream_trigger" {
-event_source_arn = aws_dynamodb_table.file_metadata.stream_arn
-function_name = aws_lambda_function.stream_processor.arn
-starting_position = "LATEST"
-batch_size = 100
-
-# Filter to only process FILE and SHARE_GRANT items
-
-# Stream processor creates VIEW_LINKs (both file and folder marker types)
-
-filter_criteria {
-filter {
-pattern = jsonencode({
-eventName = ["INSERT", "MODIFY", "REMOVE"]
-dynamodb = {
-NewImage = {
-ItemType = {
-S = [{ prefix = "FILE" }, { prefix = "SHARE_GRANT" }]
-}
-}
-}
-})
-}
-}
-}
-
-# SQS Queue for async VIEW_LINK cleanup
-
-resource "aws_sqs_queue" "view_link_cleanup" {
-name = "view-link-cleanup-queue"
-visibility_timeout_seconds = 300
+resource "aws_sqs_queue" "s3_events" {
+name = "file-storage-s3-events"
+visibility_timeout_seconds = 300 # 5 minutes for Lambda processing
 message_retention_seconds = 1209600 # 14 days
 receive_wait_time_seconds = 20 # Enable long polling
 
 redrive_policy = jsonencode({
-deadLetterTargetArn = aws_sqs_queue.view_link_cleanup_dlq.arn
+deadLetterTargetArn = aws_sqs_queue.s3_events_dlq.arn
 maxReceiveCount = 3
 })
 
 tags = {
-Name = "ViewLinkCleanupQueue"
+Name = "S3EventsQueue"
 Service = "FileSharing"
 }
 }
 
-# Dead Letter Queue for failed cleanup operations
+# Dead Letter Queue for failed S3 event processing
 
-resource "aws_sqs_queue" "view_link_cleanup_dlq" {
-name = "view-link-cleanup-dlq"
+resource "aws_sqs_queue" "s3_events_dlq" {
+name = "file-storage-s3-events-dlq"
 message_retention_seconds = 1209600 # 14 days
 
 tags = {
-Name = "ViewLinkCleanupDLQ"
+Name = "S3EventsDLQ"
 Service = "FileSharing"
 }
 }
 
-# Lambda function for SQS cleanup worker
+# Allow S3 to send messages to SQS
 
-resource "aws_lambda_function" "cleanup_worker" {
-filename = "cleanup_worker.zip"
-function_name = "view-link-cleanup-worker"
-role = aws_iam_role.lambda_cleanup_worker.arn
+resource "aws_sqs_queue_policy" "s3_events_policy" {
+queue_url = aws_sqs_queue.s3_events.id
+
+policy = jsonencode({
+Version = "2012-10-17"
+Statement = [{
+Effect = "Allow"
+Principal = {
+Service = "s3.amazonaws.com"
+}
+Action = "sqs:SendMessage"
+Resource = aws_sqs_queue.s3_events.arn
+Condition = {
+ArnEquals = {
+"aws:SourceArn" = aws_s3_bucket.file_storage.arn
+}
+}
+}]
+})
+}
+
+# S3 Bucket with event notifications
+
+resource "aws_s3_bucket_notification" "file_events" {
+bucket = aws_s3_bucket.file_storage.id
+
+queue {
+queue_arn = aws_sqs_queue.s3_events.arn
+events = ["s3:ObjectCreated:*", "s3:ObjectRemoved:*"]
+filter_prefix = "" # Process all objects
+}
+}
+
+# Lambda function for S3 event processing (FILE metadata and VIEW_LINK maintenance)
+
+resource "aws_lambda_function" "s3_event_processor" {
+filename = "s3_event_processor.zip"
+function_name = "file-storage-s3-event-processor"
+role = aws_iam_role.lambda_s3_processor.arn
 handler = "bootstrap"
 runtime = "provided.al2" # Rust custom runtime
 timeout = 300
 memory_size = 512
-reserved_concurrent_executions = 5 # Limit concurrency to avoid throttling
 
 environment {
 variables = {
@@ -218,85 +201,23 @@ TABLE_NAME = aws_dynamodb_table.file_metadata.name
 }
 
 tags = {
-Name = "CleanupWorker"
+Name = "S3EventProcessor"
 Service = "FileSharing"
 }
 }
 
 # Event source mapping for SQS
 
-resource "aws_lambda_event_source_mapping" "cleanup_trigger" {
-event_source_arn = aws_sqs_queue.view_link_cleanup.arn
-function_name = aws_lambda_function.cleanup_worker.arn
+resource "aws_lambda_event_source_mapping" "s3_event_trigger" {
+event_source_arn = aws_sqs_queue.s3_events.arn
+function_name = aws_lambda_function.s3_event_processor.arn
 batch_size = 10
 }
 
-# IAM Role for Stream Processor Lambda
+# IAM Role for S3 Event Processor Lambda
 
-resource "aws_iam_role" "lambda_stream_processor" {
-name = "file-metadata-stream-processor-role"
-
-assume_role_policy = jsonencode({
-Version = "2012-10-17"
-Statement = [{
-Action = "sts:AssumeRole"
-Effect = "Allow"
-Principal = {
-Service = "lambda.amazonaws.com"
-}
-}]
-})
-}
-
-# IAM Policy for Stream Processor
-
-resource "aws_iam_role_policy" "stream_processor_policy" {
-name = "stream-processor-policy"
-role = aws_iam_role.lambda_stream_processor.id
-
-policy = jsonencode({
-Version = "2012-10-17"
-Statement = [
-{
-Effect = "Allow"
-Action = [
-"dynamodb:GetRecords",
-"dynamodb:GetShardIterator",
-"dynamodb:DescribeStream",
-"dynamodb:ListStreams"
-]
-Resource = aws*dynamodb_table.file_metadata.stream_arn
-},
-{
-Effect = "Allow"
-Action = [
-"dynamodb:BatchWriteItem",
-"dynamodb:PutItem",
-"dynamodb:DeleteItem",
-"dynamodb:Query"
-]
-Resource = [
-aws_dynamodb_table.file_metadata.arn,
-"${aws_dynamodb_table.file_metadata.arn}/index/*"
-]
-},
-{
-Effect = "Allow"
-Action = [
-"logs:CreateLogGroup",
-"logs:CreateLogStream",
-"logs:PutLogEvents"
-]
-Resource = "arn:aws:logs:\*:\_:\*"
-}
-]
-})
-}
-
-# IAM Role for Cleanup Worker Lambda
-
-resource "aws_iam_role" "lambda_cleanup_worker" {
-name = "view-link-cleanup-worker-role"
+resource "aws_iam_role" "lambda_s3_processor" {
+name = "file-storage-s3-processor-role"
 
 assume_role_policy = jsonencode({
 Version = "2012-10-17"
@@ -310,11 +231,11 @@ Service = "lambda.amazonaws.com"
 })
 }
 
-# IAM Policy for Cleanup Worker
+# IAM Policy for S3 Event Processor
 
-resource "aws_iam_role_policy" "cleanup_worker_policy" {
-name = "cleanup-worker-policy"
-role = aws_iam_role.lambda_cleanup_worker.id
+resource "aws_iam_role_policy" "s3_processor_policy" {
+name = "s3-processor-policy"
+role = aws_iam_role.lambda_s3_processor.id
 
 policy = jsonencode({
 Version = "2012-10-17"
@@ -326,18 +247,28 @@ Action = [
 "sqs:DeleteMessage",
 "sqs:GetQueueAttributes"
 ]
-Resource = aws*sqs_queue.view_link_cleanup.arn
+Resource = aws_sqs_queue.s3_events.arn
 },
 {
 Effect = "Allow"
 Action = [
-"dynamodb:BatchWriteItem",
-"dynamodb:DeleteItem",
-"dynamodb:Query"
+"s3:GetObject",
+"s3:HeadObject"
 ]
-Resource = [
-aws_dynamodb_table.file_metadata.arn,
-"${aws_dynamodb_table.file_metadata.arn}/index/*"
+Resource = "${aws_s3_bucket.file_storage.arn}/*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:BatchWriteItem",
+          "dynamodb:PutItem",
+          "dynamodb:DeleteItem",
+          "dynamodb:GetItem",
+          "dynamodb:Query"
+        ]
+        Resource = [
+          aws_dynamodb_table.file_metadata.arn,
+          "${aws_dynamodb_table.file_metadata.arn}/index/_"
 ]
 },
 {
@@ -347,21 +278,16 @@ Action = [
 "logs:CreateLogStream",
 "logs:PutLogEvents"
 ]
-Resource = "arn:aws:logs:\*:\_:\*"
+Resource = "arn:aws:logs:_:_:_"
 }
 ]
 })
 }
 
-# CloudWatch Log Groups
+# CloudWatch Log Group for S3 Event Processor
 
-resource "aws_cloudwatch_log_group" "stream_processor_logs" {
-name = "/aws/lambda/${aws_lambda_function.stream_processor.function_name}"
-retention_in_days = 14
-}
-
-resource "aws_cloudwatch_log_group" "cleanup_worker_logs" {
-name = "/aws/lambda/${aws_lambda_function.cleanup_worker.function_name}"
+resource "aws_cloudwatch_log_group" "s3_processor_logs" {
+name = "/aws/lambda/${aws_lambda_function.s3_event_processor.function_name}"
 retention_in_days = 14
 }
 
@@ -377,17 +303,12 @@ description = "DynamoDB table ARN"
 value = aws_dynamodb_table.file_metadata.arn
 }
 
-output "stream_arn" {
-description = "DynamoDB Streams ARN"
-value = aws_dynamodb_table.file_metadata.stream_arn
+output "s3_events_queue_url" {
+description = "SQS S3 events queue URL"
+value = aws_sqs_queue.s3_events.url
 }
 
-output "cleanup_queue_url" {
-description = "SQS cleanup queue URL"
-value = aws_sqs_queue.view_link_cleanup.url
-}
-
-output "cleanup_queue_arn" {
-description = "SQS cleanup queue ARN"
-value = aws_sqs_queue.view_link_cleanup.arn
+output "s3_events_queue_arn" {
+description = "SQS S3 events queue ARN"
+value = aws_sqs_queue.s3_events.arn
 }

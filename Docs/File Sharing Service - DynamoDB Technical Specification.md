@@ -16,22 +16,29 @@ All file metadata, sharing permissions, and denormalized links for different vie
 
 - **S3-Style Folder Derivation in DynamoDB:** Folders are derived from file paths and folder markers, mimicking S3's bucket browsing behavior. Each folder level is represented by a special folder marker VIEW_LINK item that sorts before file items, enabling efficient single-query folder browsing that shows both subfolders and files.
 
-- **Prefix-Level Grants:** Access is granted at the prefix level, not per-file. A single `SHARE_GRANT` for `media/photos/` grants access to ALL files matching that prefix, including nested sub-directories.
+- **Two Grant Types:** Access can be granted at two levels:
 
-- **Universal VIEW_LINK Access Pattern:** ALL folder browsing operations use VIEW_LINK items queried via GSI2, regardless of whether the user is the owner or a recipient. This unified approach eliminates conditional query logic and ensures consistent UX. VIEW_LINKs are created automatically via DynamoDB Streams when files are uploaded.
+  - **PREFIX Grants:** A single `SHARE_GRANT` for `media/photos/` grants access to ALL files matching that prefix, including nested sub-directories
+  - **FILE Grants:** Individual file access without parent folder access, enabling privacy-preserving selective sharing
+
+- **Universal VIEW_LINK Access Pattern:** ALL folder browsing operations use VIEW_LINK items queried via GSI2, regardless of whether the user is the owner or a recipient. This unified approach eliminates conditional query logic and ensures consistent UX. VIEW_LINKs are created automatically by SQS Lambda processors when S3 files are uploaded or when grants are created via API.
 
 - **Automatic Folder Marker Creation:** When a file is created in a nested path (e.g., `media/photos/2024/vacation/img.jpg`), folder markers are automatically created for each level (`media/`, `media/photos/`, `media/photos/2024/`, `media/photos/2024/vacation/`) if they don't already exist. This enables S3-style folder navigation.
 
-- **FILE Items for Direct Operations Only:** The base table FILE items serve as the canonical source of truth for file metadata, used exclusively for create, update, delete, and direct file access operations (e.g., download, get metadata). All folder browsing goes through GSI2.
+- **FILE Items for Direct Operations Only:** The base table FILE items serve as the canonical source of truth for file metadata. All folder browsing operations query VIEW_LINKs via GSI2, never FILE items directly.
 
-- **Immediate Revocation via SHARE_GRANT Validation:** Permission enforcement is done by checking the existence of the `SHARE_GRANT` item. This means revocation is immediate, even if `VIEW_LINK` cleanup is asynchronous.
+- **VIEW_LINK Existence = Access Proof:** Permission validation is simple: if a VIEW_LINK exists for a user viewing a file, access is granted. This eliminates the need for complex grant checking during file operations.
+
+- **Synchronous API Operations:** All API operations complete fully before returning to the client. This simplifies the architecture during the MVP phase, with future optimization for async operations planned as the user base grows.
+
+- **S3 Lifecycle Management:** File creation, updates, and deletions occur directly in S3. S3 events trigger SQS messages that are processed by Lambda functions to maintain DynamoDB metadata synchronization.
 
 **Operational Context:**
 
 - **Users for Examples:** Sheldon, Leigh, and Justin.
 - **Table Name:** `FileMetadata`
 - **Billing Mode:** Pay-Per-Request (On-Demand), ideal for unpredictable workloads.
-- **Supporting Infrastructure:** SQS queue for async cleanup, DynamoDB Streams + Lambda for automatic VIEW_LINK maintenance.
+- **Supporting Infrastructure:** S3 bucket with SQS event notifications, Lambda function for S3 event processing, API Gateway + Lambda for RESTful API endpoints.
 
 ### **1.2. Schema Keys**
 
@@ -126,7 +133,7 @@ A PREFIX grant provides access to ALL files matching a specific folder prefix, i
 - **GrantID:** A unique identifier (UUID) for this specific grant. Used for: 1) Preventing duplicate grants via SK uniqueness, 2) Referencing the grant from VIEW_LINK items, 3) Tracking grants in audit logs.
 - **GrantType:** Set to `PREFIX` to indicate folder-level access. This attribute distinguishes folder grants from file-specific grants in the same table.
 - **Prefix-Level Access:** Granting access to `media/photos/` automatically includes access to `media/photos/2024/`, `media/photos/2024/vacation/`, etc. The recipient can browse subfolders and view all files matching the prefix.
-- **Atomic Revocation:** Deleting this single item immediately revokes access to all files under the prefix (enforced by API permission checks). VIEW_LINK cleanup happens asynchronously via DynamoDB Streams.
+- **Atomic Revocation:** Deleting this single item immediately revokes access to all files under the prefix (enforced by API permission checks). VIEW_LINK cleanup happens synchronously when the grant is revoked via the API.
 - **GSI1 Projection:** PREFIX grants appear in the recipient's "Shared With Me" folder list, allowing them to browse the shared folder tree.
 
 #### **2.2.2. FILE Grant (Individual File Access)**
@@ -151,13 +158,13 @@ A FILE grant provides access to a single specific file without granting access t
 
 **Key Design Notes:**
 
-- **GrantType:** Set to `FILE` to indicate file-specific access. This enables the stream processor to create a single VIEW_LINK for just this file.
+- **GrantType:** Set to `FILE` to indicate file-specific access. This enables the grant creation API to create a single VIEW_LINK for just this file.
 - **FileID and FilePath:** Both attributes are stored for efficient lookup and audit logging. `FileID` is the unique file identifier (UUID), and `FilePath` is the human-readable full path.
 - **No Prefix Attribute:** FILE grants do NOT include a `Prefix` attribute since they don't grant folder-level access. The recipient cannot browse the parent folder `media/Project Docs/` - they only see this specific file.
-- **Single VIEW_LINK Creation:** When a FILE grant is created, the stream processor creates exactly ONE VIEW_LINK pointing to this file. No folder markers or sibling files are visible to the recipient.
+- **Single VIEW_LINK Creation:** When a FILE grant is created, the API creates exactly ONE VIEW_LINK pointing to this file synchronously. No folder markers or sibling files are visible to the recipient.
 - **GSI1-SK Format:** FILE grants use a different GSI1-SK pattern (`GRANT#<OwnerID>#FILE#<FileID>`) to distinguish them from PREFIX grants in the "Shared With Me" view. The UI can group PREFIX grants as folders and FILE grants as individual files.
 - **Use Case:** Share a single vacation photo from a private folder, share a confidential document without exposing other files in the same directory, or grant access to a specific report without revealing the entire reports archive.
-- **Atomic Revocation:** Deleting the FILE grant immediately removes access. The single VIEW_LINK is cleaned up asynchronously.
+- **Atomic Revocation:** Deleting the FILE grant immediately removes access. The single VIEW_LINK is deleted synchronously by the API.
 
 #### **2.2.3. Choosing Between PREFIX and FILE Grants**
 
@@ -182,11 +189,11 @@ A denormalized pointer created for every file and folder a user can view. VIEW_L
 1. **File VIEW_LINK:** Points to an actual file (`FileID` is a UUID)
 2. **Folder Marker VIEW_LINK:** Represents a subfolder (`FileID = "FOLDER#<FullFolderPath>"`)
 
-**Creation Strategy:** VIEW_LINKs are created **automatically via DynamoDB Streams** whenever:
+**Creation Strategy:** VIEW_LINKs are created **automatically** whenever:
 
-- A FILE item is created (creates file VIEW_LINKs + ancestor folder markers for the owner)
-- A PREFIX SHARE_GRANT is created (creates VIEW_LINKs for all matching files/folders via async worker)
-- A FILE SHARE_GRANT is created (creates a single VIEW_LINK for the specific file via stream processor)
+- A FILE is uploaded to S3 (S3 event processor creates file VIEW_LINKs + ancestor folder markers for the owner + all matching grants)
+- A PREFIX SHARE_GRANT is created (API creates VIEW_LINKs synchronously for all matching files/folders)
+- A FILE SHARE_GRANT is created (API creates a single VIEW_LINK synchronously for the specific file)
 
 This means owners always browse their files through VIEW_LINKs, just like recipients do, ensuring a single, consistent code path for all folder operations. Recipients with FILE grants see individual files in their file list without parent folder context, while recipients with PREFIX grants can browse the full folder tree.
 
@@ -693,8 +700,8 @@ let page2_result = client.query().send().await?;
 - **Goal:** Share all files under `media/Project Docs/` with Justin, giving him READ access.
 - **Strategy:**
   1. Create a single SHARE_GRANT item (immediate access grant)
-  2. Create VIEW_LINKs for all existing files in that prefix via background job
-  3. Future files will automatically get VIEW_LINKs via DynamoDB Streams
+  2. Create VIEW_LINKs synchronously for all existing files in that prefix (may take 10-30 seconds for large folders)
+  3. Future files uploaded to S3 will automatically get VIEW_LINKs via S3 event processor
 
 ```rust
 use uuid::Uuid;
@@ -742,14 +749,14 @@ sqs_client.send_message()
 // Worker will process this and create VIEW_LINKs for all existing files in batches
 ```
 
-**Note:** This single SHARE_GRANT operation grants access to potentially thousands of files. VIEW_LINKs are created asynchronously in the background for existing files. New files uploaded after the grant will automatically get VIEW_LINKs via DynamoDB Streams.
+**Note:** This single SHARE_GRANT operation grants access to potentially thousands of files. VIEW_LINKs are created synchronously by the API for existing files (may take 10-30 seconds for large folders). New files uploaded after the grant will automatically get VIEW_LINKs via S3 event processor.
 
 ### **Use Case 6: Sheldon uploads a new file to a nested folder**
 
 - **Goal:** When Sheldon uploads `media/photos/2024/vacation/img.jpg`, automatically create:
   1. FILE VIEW_LINKs for all users who have access (owner + recipients)
   2. Folder marker VIEW_LINKs for each ancestor folder level
-- **Strategy:** DynamoDB Streams + Lambda trigger automatically detects the new FILE item and creates all necessary VIEW_LINKs and folder markers.
+- **Strategy:** S3 event processor (triggered by S3 ObjectCreated event via SQS) automatically detects the new file and creates all necessary VIEW_LINKs and folder markers.
 
 **Step 1: Sheldon uploads file (creates FILE item)**
 
@@ -774,14 +781,15 @@ let put_input = PutItemInput {
 };
 ```
 
-**Step 2: DynamoDB Stream triggers Lambda**
+**Step 2: S3 event processor Lambda handles file upload**
 
 ```rust
-// Lambda function receives stream event
-async fn handle_stream_event(event: DynamoDbEvent) -> Result<()> {
+// Lambda function receives S3 event from SQS
+async fn handle_s3_event(event: S3Event) -> Result<()> {
     for record in event.records {
-        if record.event_name == "INSERT" && record.dynamodb.new_image.item_type == "FILE" {
-            let file = parse_file_from_stream_record(&record)?;
+        if record.event_name.starts_with("ObjectCreated:") {
+            let s3_key = &record.s3.object.key;
+            let file = parse_file_from_s3_key(s3_key)?;
 
             // Find all grants for this file (both prefix and file-specific)
             let prefix_grants = find_prefix_grants(&file.owner_id, &file.folder_prefix).await?;
@@ -1009,48 +1017,39 @@ let put_input = PutItemInput {
 client.put_item(put_input).await?;
 ```
 
-**Step 2: DynamoDB Stream detects FILE grant and creates single VIEW_LINK**
+**Step 2: API creates single VIEW_LINK for FILE grant**
 
 ```rust
-// Stream processor handles new FILE grant
-async fn handle_insert(client: &DynamoDbClient, record: &EventRecord) -> Result<()> {
-    let new_image = record.dynamodb.new_image.as_ref().unwrap();
-    let item_type = new_image.get("ItemType")?.as_s()?;
+// API synchronously creates VIEW_LINK after creating grant
+async fn create_file_grant_view_link(client: &DynamoDbClient, grant: &ShareGrant) -> Result<()> {
+    // Fetch the specific file from the owner's partition
+    let file = get_file_by_id(client, &grant.owner_id, &grant.file_id).await?;
 
-    if item_type == "SHARE_GRANT" {
-        let grant = parse_grant(new_image)?;
+    // Create single VIEW_LINK for recipient (no folder markers)
+    let view_link = hashmap! {
+        "PK".to_string() => AttributeValue::S(format!("USER#{}", grant.recipient_id)),
+        "SK".to_string() => AttributeValue::S(format!("VIEWLINK#{}#{}", file.owner_id, file.file_id)),
+        "ItemType".to_string() => AttributeValue::S("VIEW_LINK".to_string()),
+        "FileID".to_string() => AttributeValue::S(file.file_id.clone()),
+        "OwnerID".to_string() => AttributeValue::S(file.owner_id.clone()),
+        "GrantID".to_string() => AttributeValue::S(grant.grant_id.clone()),
+        "CreatedDate".to_string() => AttributeValue::N(file.created_date.to_string()),
+        "FolderPrefix".to_string() => AttributeValue::S(file.folder_prefix.clone()),
+        "FileName".to_string() => AttributeValue::S(file.file_name.clone()),
+        "MediaType".to_string() => AttributeValue::S(file.media_type.clone()),
+        "GSI2-PK".to_string() => AttributeValue::S(
+            format!("VIEWER#{}#FOLDER#{}", grant.recipient_id, file.folder_prefix)
+        ),
+        "GSI2-SK".to_string() => AttributeValue::S(
+            format!("TYPE#FILE#{}#{}#{}", file.created_date, file.media_type, file.file_id)
+        ),
+    };
 
-        if grant.grant_type == "FILE" {
-            // Fetch the specific file from the owner's partition
-            let file = get_file_by_id(client, &grant.owner_id, &grant.file_id).await?;
-
-            // Create single VIEW_LINK for Justin (no folder markers)
-            let view_link = hashmap! {
-                "PK".to_string() => AttributeValue::S(format!("USER#{}", grant.recipient_id)),
-                "SK".to_string() => AttributeValue::S(format!("VIEWLINK#{}#{}", file.owner_id, file.file_id)),
-                "ItemType".to_string() => AttributeValue::S("VIEW_LINK".to_string()),
-                "FileID".to_string() => AttributeValue::S(file.file_id.clone()),
-                "OwnerID".to_string() => AttributeValue::S(file.owner_id.clone()),
-                "GrantID".to_string() => AttributeValue::S(grant.grant_id.clone()),
-                "CreatedDate".to_string() => AttributeValue::N(file.created_date.to_string()),
-                "FolderPrefix".to_string() => AttributeValue::S(file.folder_prefix.clone()),
-                "FileName".to_string() => AttributeValue::S(file.file_name.clone()),
-                "MediaType".to_string() => AttributeValue::S(file.media_type.clone()),
-                "GSI2-PK".to_string() => AttributeValue::S(
-                    format!("VIEWER#{}#FOLDER#{}", grant.recipient_id, file.folder_prefix)
-                ),
-                "GSI2-SK".to_string() => AttributeValue::S(
-                    format!("TYPE#FILE#{}#{}#{}", file.created_date, file.media_type, file.file_id)
-                ),
-            };
-
-            client.put_item()
-                .table_name("FileMetadata")
-                .set_item(Some(view_link))
-                .send()
-                .await?;
-        }
-    }
+    client.put_item()
+        .table_name("FileMetadata")
+        .set_item(Some(view_link))
+        .send()
+        .await?;
 
     Ok(())
 }
@@ -1115,10 +1114,10 @@ let grants_result = client.query()
 
 - ✅ **Granular Sharing:** Share single file without folder access
 - ✅ **Privacy Preserved:** Recipient cannot see parent folder structure or sibling files
-- ✅ **Immediate Access:** FILE grant creates VIEW_LINK instantly via stream processor (no async worker needed)
+- ✅ **Immediate Access:** FILE grant creates VIEW_LINK instantly via API (synchronous operation)
 - ✅ **UI Clarity:** "Shared With Me" view distinguishes between folder grants (browsable) and file grants (standalone files)
 - ✅ **Minimal Overhead:** One FILE grant + one VIEW_LINK (vs hundreds of items for folder sharing)
-- ✅ **Atomic Revocation:** Delete FILE grant to immediately remove access
+- ✅ **Atomic Revocation:** Delete FILE grant to immediately remove access and VIEW_LINK
 
 **Design Notes:**
 
@@ -1127,293 +1126,78 @@ let grants_result = client.query()
 - If Sheldon later grants PREFIX access to `media/private/`, Justin would see the folder structure and all files (FILE grant becomes redundant)
 - Application should warn users if they're creating a FILE grant for a file already covered by a PREFIX grant
 
-### **Use Case 8: Sheldon renames/moves a folder**
-
-- **Goal:** Rename a folder (e.g., `media/photos/` → `media/images/`) or move it to a new location, updating all file paths and maintaining all access grants.
-- **Strategy:** Use S3-style copy+delete pattern. Copy each file to the new path in both S3 and DynamoDB, allowing streams to automatically create new VIEW_LINKs, then delete the old prefix.
-- **Rationale:** Updating thousands of FILE items and VIEW_LINKs in place would be expensive and error-prone. S3 doesn't support folder rename, so copying files matches S3's behavior while leveraging stream-based VIEW_LINK automation.
-
-**Implementation: Folder Rename Function**
-
-```rust
-use aws_sdk_s3::Client as S3Client;
-use aws_sdk_dynamodb::Client as DynamoDbClient;
-
-pub async fn rename_folder(
-    s3_client: &S3Client,
-    ddb_client: &DynamoDbClient,
-    owner_id: &str,
-    old_prefix: &str,  // e.g., "media/photos/"
-    new_prefix: &str,  // e.g., "media/images/"
-) -> Result<RenameProgress> {
-    let bucket = "file-storage-bucket";
-    let mut progress = RenameProgress::new();
-
-    // Step 1: Query all FILE items with old prefix
-    let mut last_key = None;
-    loop {
-        let result = ddb_client.query()
-            .table_name("FileMetadata")
-            .key_condition_expression("PK = :pk AND begins_with(SK, :sk_prefix)")
-            .expression_attribute_values(":pk", AttributeValue::S(format!("USER#{}", owner_id)))
-            .expression_attribute_values(":sk_prefix", AttributeValue::S(format!("FILE#{}", old_prefix)))
-            .set_exclusive_start_key(last_key)
-            .send()
-            .await?;
-
-        let files = result.items.unwrap_or_default();
-        progress.total_files = files.len();
-
-        for file_item in files {
-            let old_path = file_item.get("SK")?.as_s()?.strip_prefix("FILE#").unwrap();
-            let file_name = file_item.get("FileName")?.as_s()?;
-
-            // Calculate new path by replacing prefix
-            let relative_path = old_path.strip_prefix(old_prefix).unwrap();
-            let new_path = format!("{}{}", new_prefix, relative_path);
-
-            // Step 2: Copy file in S3
-            let old_s3_key = format!("{}/{}", owner_id, old_path);
-            let new_s3_key = format!("{}/{}", owner_id, new_path);
-
-            s3_client.copy_object()
-                .bucket(bucket)
-                .copy_source(format!("{}/{}", bucket, old_s3_key))
-                .key(&new_s3_key)
-                .send()
-                .await?;
-
-            progress.files_copied += 1;
-
-            // Step 3: Create new FILE item with new path
-            let new_file_id = uuid::Uuid::new_v4().to_string();
-            let new_folder_prefix = calculate_folder_prefix(&new_path);
-
-            let new_file = hashmap! {
-                "PK".to_string() => AttributeValue::S(format!("USER#{}", owner_id)),
-                "SK".to_string() => AttributeValue::S(format!("FILE#{}", new_path)),
-                "ItemType".to_string() => AttributeValue::S("FILE".to_string()),
-                "FileID".to_string() => AttributeValue::S(new_file_id.clone()),
-                "OwnerID".to_string() => AttributeValue::S(owner_id.to_string()),
-                "FileName".to_string() => AttributeValue::S(file_name.clone()),
-                "FolderPrefix".to_string() => AttributeValue::S(new_folder_prefix.clone()),
-                "CreatedDate".to_string() => file_item.get("CreatedDate")?.clone(),
-                "MediaType".to_string() => file_item.get("MediaType")?.clone(),
-                "S3Key".to_string() => AttributeValue::S(new_s3_key.clone()),
-                "Size".to_string() => file_item.get("Size")?.clone(),
-                // Copy other metadata fields...
-            };
-
-            ddb_client.put_item()
-                .table_name("FileMetadata")
-                .set_item(Some(new_file))
-                .send()
-                .await?;
-
-            progress.new_files_created += 1;
-
-            // Stream processor automatically creates:
-            //   - VIEW_LINKs for owner
-            //   - VIEW_LINKs for all PREFIX grant recipients
-            //   - VIEW_LINKs for any FILE grant recipients (if FileID matches)
-            //   - Folder markers for all ancestor folders
-
-            // Small delay to avoid throttling
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-
-        if result.last_evaluated_key.is_none() {
-            break;
-        }
-        last_key = result.last_evaluated_key;
-    }
-
-    // Step 4: Wait for stream processing to complete (monitor VIEW_LINK counts)
-    wait_for_view_link_propagation(ddb_client, owner_id, &new_prefix, progress.total_files).await?;
-
-    // Step 5: Delete old prefix (files, VIEW_LINKs, and folder markers)
-    delete_prefix(s3_client, ddb_client, owner_id, old_prefix).await?;
-    progress.old_files_deleted = progress.total_files;
-
-    Ok(progress)
-}
-
-async fn delete_prefix(
-    s3_client: &S3Client,
-    ddb_client: &DynamoDbClient,
-    owner_id: &str,
-    prefix: &str,
-) -> Result<()> {
-    // Step 1: Delete all FILE items with this prefix
-    let mut last_key = None;
-    loop {
-        let result = ddb_client.query()
-            .table_name("FileMetadata")
-            .key_condition_expression("PK = :pk AND begins_with(SK, :sk_prefix)")
-            .expression_attribute_values(":pk", AttributeValue::S(format!("USER#{}", owner_id)))
-            .expression_attribute_values(":sk_prefix", AttributeValue::S(format!("FILE#{}", prefix)))
-            .set_exclusive_start_key(last_key)
-            .send()
-            .await?;
-
-        let files = result.items.unwrap_or_default();
-
-        for file_item in files {
-            let pk = file_item.get("PK")?.clone();
-            let sk = file_item.get("SK")?.clone();
-            let s3_key = file_item.get("S3Key")?.as_s()?;
-
-            // Delete FILE item
-            ddb_client.delete_item()
-                .table_name("FileMetadata")
-                .key("PK", pk)
-                .key("SK", sk)
-                .send()
-                .await?;
-
-            // Delete from S3
-            s3_client.delete_object()
-                .bucket("file-storage-bucket")
-                .key(s3_key)
-                .send()
-                .await?;
-
-            // Stream processor automatically deletes VIEW_LINKs for all users
-        }
-
-        if result.last_evaluated_key.is_none() {
-            break;
-        }
-        last_key = result.last_evaluated_key;
-    }
-
-    Ok(())
-}
-
-async fn wait_for_view_link_propagation(
-    client: &DynamoDbClient,
-    owner_id: &str,
-    new_prefix: &str,
-    expected_file_count: usize,
-) -> Result<()> {
-    // Poll VIEW_LINKs for owner until count matches expected files
-    let max_attempts = 30;
-    let mut attempts = 0;
-
-    loop {
-        let result = client.query()
-            .table_name("FileMetadata")
-            .index_name("MergedFolderViewIndex")
-            .key_condition_expression("GSI2-PK = :pk")
-            .filter_expression("ItemType = :item_type")
-            .expression_attribute_values(":pk", AttributeValue::S(
-                format!("VIEWER#{}#FOLDER#{}", owner_id, new_prefix)
-            ))
-            .expression_attribute_values(":item_type", AttributeValue::S("VIEW_LINK".to_string()))
-            .select("COUNT")
-            .send()
-            .await?;
-
-        let view_link_count = result.count as usize;
-
-        if view_link_count >= expected_file_count {
-            // All VIEW_LINKs created
-            return Ok(());
-        }
-
-        attempts += 1;
-        if attempts >= max_attempts {
-            return Err(anyhow!("Timeout waiting for VIEW_LINK propagation"));
-        }
-
-        tokio::time::sleep(Duration::from_secs(2)).await;
-    }
-}
-
-#[derive(Debug)]
-pub struct RenameProgress {
-    pub total_files: usize,
-    pub files_copied: usize,
-    pub new_files_created: usize,
-    pub old_files_deleted: usize,
-}
-
-impl RenameProgress {
-    fn new() -> Self {
-        Self {
-            total_files: 0,
-            files_copied: 0,
-            new_files_created: 0,
-            old_files_deleted: 0,
-        }
-    }
-}
-
-// Helper: Extract folder prefix from file path
-fn calculate_folder_prefix(file_path: &str) -> String {
-    let segments: Vec<&str> = file_path.split('/').collect();
-    if segments.len() > 1 {
-        segments[..segments.len() - 1].join("/") + "/"
-    } else {
-        String::new()
-    }
-}
-```
-
-**Key Benefits:**
-
-- ✅ **S3 Compatibility:** Matches S3's copy+delete pattern (S3 has no native rename)
-- ✅ **Automatic VIEW_LINK Handling:** Streams create all new VIEW_LINKs and folder markers
-- ✅ **Automatic Cleanup:** Streams delete all old VIEW_LINKs when FILE items are removed
-- ✅ **Grant Preservation:** PREFIX grants automatically apply to new paths (no grant updates needed)
-- ✅ **Progress Tracking:** Function returns progress metrics for UI feedback
-- ✅ **Atomic Per-File:** Each file copy/create is atomic (can resume if interrupted)
-- ✅ **No Manual VIEW_LINK Management:** Zero manual VIEW_LINK manipulation required
-
-**Design Trade-offs:**
-
-- **Cost:** Charges for S3 COPY requests and new DynamoDB PUTs (vs. hypothetical in-place updates)
-- **FileID Changes:** New files get new FileIDs (any external references to old FileIDs will break)
-- **Time:** O(N) operation for N files (folder with 1000 files takes ~1 minute with 50ms delays)
-- **Why Not Update In Place?** Would require:
-  - Updating thousands of FILE items (PK and SK cannot be updated - must delete+recreate)
-  - Manually updating thousands of VIEW_LINK items across all users' partitions
-  - Complex transaction coordination across S3 and DynamoDB
-  - Difficult rollback if partial failure occurs
-
-**Alternative Approach (Not Recommended):**
-
-- **Shadow Table Pattern:** Keep old FileIDs and maintain a mapping table (`OldFileID` → `NewPath`)
-  - ❌ Adds query complexity (check mapping table on every file access)
-  - ❌ Requires cleanup strategy for old mappings
-  - ❌ Still requires updating all VIEW_LINKs manually
-  - ✅ Preserves FileID references
-
-**Recommendation:** Use copy+delete pattern for simplicity and consistency with S3 behavior. If preserving external FileID references is critical, document FileID changes and provide migration API endpoints.
-
 ## **4. Implementation Guide**
 
-This section provides detailed implementation guidance for the core infrastructure components needed to support this schema.
+This section provides detailed implementation guidance for the core infrastructure components needed to support this schema, including S3 event processing and RESTful API endpoints.
 
-### **4.1. DynamoDB Streams Configuration**
+### **4.1. S3 Event Processing via SQS**
 
-Enable DynamoDB Streams on the FileMetadata table to automatically trigger Lambda functions for VIEW_LINK maintenance.
+### **4.1. S3 Event Processing via SQS**
 
-```rust
-// Terraform configuration (see DynamoDB Terraform Configuration.md for complete setup)
-resource "aws_dynamodb_table" "file_metadata" {
-  // ... table configuration
+All file creation, updates, and deletions occur directly in S3. S3 bucket event notifications trigger SQS messages that are processed by a Lambda function to maintain DynamoDB metadata synchronization.
 
-  stream_enabled   = true
-  stream_view_type = "NEW_AND_OLD_IMAGES" // Capture both old and new item states
+**S3 Event Configuration:**
+
+```terraform
+resource "aws_s3_bucket_notification" "file_events" {
+  bucket = aws_s3_bucket.file_storage.id
+
+  queue {
+    queue_arn     = aws_sqs_queue.s3_events.arn
+    events        = ["s3:ObjectCreated:*", "s3:ObjectRemoved:*"]
+    filter_prefix = "" // Process all objects
+  }
+}
+
+resource "aws_sqs_queue" "s3_events" {
+  name                       = "file-storage-s3-events"
+  visibility_timeout_seconds = 300  // 5 minutes for Lambda processing
+  message_retention_seconds  = 1209600  // 14 days
+  receive_wait_time_seconds  = 20  // Long polling
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.s3_events_dlq.arn
+    maxReceiveCount     = 3
+  })
+}
+
+resource "aws_sqs_queue" "s3_events_dlq" {
+  name = "file-storage-s3-events-dlq"
 }
 ```
 
-**Stream Processing Lambda:**
+**S3 Event Handler Lambda:**
+
+This Lambda function processes S3 events and maintains DynamoDB FILE items and VIEW_LINK denormalization.
 
 ```rust
-use aws_lambda_events::event::dynamodb::{Event as DynamoDbEvent, EventRecord};
+use aws_lambda_events::event::sqs::{SqsEvent, SqsMessage};
 use aws_sdk_dynamodb::Client as DynamoDbClient;
+use serde::{Deserialize, Serialize};
+
+#[derive(Deserialize)]
+struct S3EventRecord {
+    #[serde(rename = "eventName")]
+    event_name: String,
+    s3: S3Entity,
+}
+
+#[derive(Deserialize)]
+struct S3Entity {
+    bucket: S3Bucket,
+    object: S3Object,
+}
+
+#[derive(Deserialize)]
+struct S3Bucket {
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct S3Object {
+    key: String,
+    size: Option<i64>,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -1421,117 +1205,193 @@ async fn main() -> Result<(), Error> {
     Ok(())
 }
 
-async fn func(event: DynamoDbEvent, _ctx: Context) -> Result<(), Error> {
+async fn func(event: SqsEvent, _ctx: Context) -> Result<(), Error> {
     let config = aws_config::load_from_env().await;
     let client = DynamoDbClient::new(&config);
 
     for record in event.records {
-        match record.event_name.as_str() {
-            "INSERT" => handle_insert(&client, &record).await?,
-            "MODIFY" => handle_modify(&client, &record).await?,
-            "REMOVE" => handle_remove(&client, &record).await?,
-            _ => {}
+        // Each SQS message contains an S3 event notification
+        let s3_event: S3EventRecord = serde_json::from_str(&record.body)?;
+
+        match s3_event.event_name.as_str() {
+            name if name.starts_with("ObjectCreated:") => {
+                handle_s3_object_created(&client, &s3_event).await?;
+            },
+            name if name.starts_with("ObjectRemoved:") => {
+                handle_s3_object_removed(&client, &s3_event).await?;
+            },
+            _ => {
+                eprintln!("Unknown S3 event: {}", s3_event.event_name);
+            }
         }
     }
 
     Ok(())
 }
 
-async fn handle_insert(client: &DynamoDbClient, record: &EventRecord) -> Result<()> {
-    let new_image = record.dynamodb.new_image.as_ref().unwrap();
-    let item_type = new_image.get("ItemType")?.as_s()?;
+async fn handle_s3_object_created(
+    client: &DynamoDbClient,
+    event: &S3EventRecord
+) -> Result<()> {
+    // Parse S3 key: format is "OwnerID/path/to/file.ext"
+    let s3_key = &event.s3.object.key;
+    let parts: Vec<&str> = s3_key.splitn(2, '/').collect();
 
-    match item_type.as_str() {
-        "FILE" => {
-            let file = parse_file(new_image)?;
-
-            // Find all grants for this file (both prefix and file-specific grants)
-            let prefix_grants = find_prefix_grants(client, &file.owner_id, &file.folder_prefix).await?;
-            let file_grants = find_file_grants(client, &file.owner_id, &file.file_id).await?;
-
-            let mut items_to_create = Vec::new();
-
-            // Create VIEW_LINKs and folder markers for owner
-            let owner_grant_id = "OWNER";
-            items_to_create.push(create_file_view_link(&file.owner_id, &file, owner_grant_id));
-            items_to_create.extend(
-                create_folder_markers(&file.owner_id, &file.owner_id, owner_grant_id, &file.folder_prefix)
-            );
-
-            // Create VIEW_LINKs and folder markers for each prefix grant recipient
-            for grant in prefix_grants {
-                items_to_create.push(
-                    create_file_view_link(&grant.recipient_id, &file, &grant.grant_id)
-                );
-                items_to_create.extend(
-                    create_folder_markers(&grant.recipient_id, &file.owner_id, &grant.grant_id, &file.folder_prefix)
-                );
-            }
-
-            // Create VIEW_LINKs for file grant recipients (no folder markers)
-            for grant in file_grants {
-                items_to_create.push(
-                    create_file_view_link(&grant.recipient_id, &file, &grant.grant_id)
-                );
-            }
-
-            batch_write_items(client, items_to_create).await?;
-        },
-        "SHARE_GRANT" => {
-            // New grant created - handle based on grant type
-            let grant = parse_grant(new_image)?;
-
-            match grant.grant_type.as_str() {
-                "PREFIX" => {
-                    // Queue VIEW_LINK creation for all existing files matching prefix
-                    let message = CreateViewLinksMessage {
-                        action: "CREATE_VIEW_LINKS".to_string(),
-                        grant_type: "PREFIX".to_string(),
-                        grant_id: grant.grant_id,
-                        owner_id: grant.owner_id,
-                        recipient_id: grant.recipient_id,
-                        prefix: grant.prefix,
-                    };
-                    send_sqs_message(&message).await?;
-                },
-                "FILE" => {
-                    // Create single VIEW_LINK for the specific file immediately
-                    let file = get_file_by_id(client, &grant.owner_id, &grant.file_id).await?;
-                    let view_link = create_file_view_link(&grant.recipient_id, &file, &grant.grant_id);
-                    client.put_item()
-                        .table_name("FileMetadata")
-                        .set_item(Some(view_link))
-                        .send()
-                        .await?;
-                },
-                _ => {}
-            }
-        },
-        _ => {}
+    if parts.len() != 2 {
+        return Err(anyhow!("Invalid S3 key format: {}", s3_key));
     }
+
+    let owner_id = parts[0];
+    let file_path = parts[1];
+    let file_name = file_path.split('/').last().unwrap_or(file_path);
+    let folder_prefix = calculate_folder_prefix(file_path);
+    let file_id = uuid::Uuid::new_v4().to_string();
+
+    // Detect media type from extension
+    let media_type = detect_media_type(file_name);
+
+    // Create FILE item
+    let file_item = hashmap! {
+        "PK" => AttributeValue::S(format!("USER#{}", owner_id)),
+        "SK" => AttributeValue::S(format!("FILE#{}", file_path)),
+        "ItemType" => AttributeValue::S("FILE".to_string()),
+        "FileID" => AttributeValue::S(file_id.clone()),
+        "OwnerID" => AttributeValue::S(owner_id.to_string()),
+        "FileName" => AttributeValue::S(file_name.to_string()),
+        "FolderPrefix" => AttributeValue::S(folder_prefix.clone()),
+        "CreatedDate" => AttributeValue::N(chrono::Utc::now().timestamp().to_string()),
+        "MediaType" => AttributeValue::S(media_type.clone()),
+        "S3Key" => AttributeValue::S(s3_key.clone()),
+        "Size" => AttributeValue::N(event.s3.object.size.unwrap_or(0).to_string()),
+    };
+
+    client.put_item()
+        .table_name("FileMetadata")
+        .set_item(Some(file_item))
+        .send()
+        .await?;
+
+    // Create VIEW_LINKs for owner
+    let mut items_to_create = Vec::new();
+
+    let owner_view_link = create_file_view_link(
+        owner_id,
+        owner_id,
+        &file_id,
+        file_name,
+        &folder_prefix,
+        &media_type,
+        chrono::Utc::now().timestamp(),
+        "OWNER"
+    );
+    items_to_create.push(owner_view_link);
+
+    // Create folder markers for owner
+    items_to_create.extend(
+        create_folder_markers(owner_id, owner_id, "OWNER", &folder_prefix)
+    );
+
+    // Find all PREFIX grants that match this file's path
+    let prefix_grants = find_prefix_grants(client, owner_id, &folder_prefix).await?;
+
+    for grant in prefix_grants {
+        // Create VIEW_LINK for recipient
+        let recipient_view_link = create_file_view_link(
+            &grant.recipient_id,
+            owner_id,
+            &file_id,
+            file_name,
+            &folder_prefix,
+            &media_type,
+            chrono::Utc::now().timestamp(),
+            &grant.grant_id
+        );
+        items_to_create.push(recipient_view_link);
+
+        // Create folder markers for recipient
+        items_to_create.extend(
+            create_folder_markers(&grant.recipient_id, owner_id, &grant.grant_id, &folder_prefix)
+        );
+    }
+
+    // Find all FILE grants that match this specific FileID
+    // (This handles the case where a file was deleted and re-uploaded with same path)
+    let file_grants = find_file_grants_by_path(client, owner_id, file_path).await?;
+
+    for grant in file_grants {
+        // Create VIEW_LINK for recipient (no folder markers for FILE grants)
+        let recipient_view_link = create_file_view_link(
+            &grant.recipient_id,
+            owner_id,
+            &file_id,
+            file_name,
+            &folder_prefix,
+            &media_type,
+            chrono::Utc::now().timestamp(),
+            &grant.grant_id
+        );
+        items_to_create.push(recipient_view_link);
+    }
+
+    // Batch write all VIEW_LINKs and folder markers
+    batch_write_items(client, items_to_create).await?;
 
     Ok(())
 }
 
-async fn handle_remove(client: &DynamoDbClient, record: &EventRecord) -> Result<()> {
-    let old_image = record.dynamodb.old_image.as_ref().unwrap();
-    let item_type = old_image.get("ItemType")?.as_s()?;
+async fn handle_s3_object_removed(
+    client: &DynamoDbClient,
+    event: &S3EventRecord
+) -> Result<()> {
+    // Parse S3 key: format is "OwnerID/path/to/file.ext"
+    let s3_key = &event.s3.object.key;
+    let parts: Vec<&str> = s3_key.splitn(2, '/').collect();
 
-    match item_type.as_str() {
-        "FILE" => {
-            // File deleted - remove all VIEW_LINKs (prefix grants + file grants)
-            let file = parse_file(old_image)?;
-            let prefix_grants = find_prefix_grants(client, &file.owner_id, &file.folder_prefix).await?;
-            let file_grants = find_file_grants(client, &file.owner_id, &file.file_id).await?;
-
-            let mut recipients = vec![file.owner_id.clone()];
-            recipients.extend(prefix_grants.iter().map(|g| g.recipient_id.clone()));
-            recipients.extend(file_grants.iter().map(|g| g.recipient_id.clone()));
-
-            delete_view_links_batch(client, &file.file_id, &file.owner_id, &recipients).await?;
-        },
-        _ => {}
+    if parts.len() != 2 {
+        return Err(anyhow!("Invalid S3 key format: {}", s3_key));
     }
+
+    let owner_id = parts[0];
+    let file_path = parts[1];
+
+    // Get FILE item to retrieve FileID
+    let file_result = client.get_item()
+        .table_name("FileMetadata")
+        .key("PK", AttributeValue::S(format!("USER#{}", owner_id)))
+        .key("SK", AttributeValue::S(format!("FILE#{}", file_path)))
+        .send()
+        .await?;
+
+    let file_item = file_result.item
+        .ok_or_else(|| anyhow!("FILE item not found for deleted S3 object: {}", s3_key))?;
+
+    let file_id = file_item.get("FileID")
+        .and_then(|v| v.as_s().ok())
+        .ok_or_else(|| anyhow!("FileID not found in FILE item"))?;
+
+    // Find all grants related to this file
+    let folder_prefix = calculate_folder_prefix(file_path);
+    let prefix_grants = find_prefix_grants(client, owner_id, &folder_prefix).await?;
+    let file_grants = find_file_grants_by_file_id(client, owner_id, file_id).await?;
+
+    // Collect all users who have VIEW_LINKs for this file
+    let mut recipients = vec![owner_id.to_string()];
+    recipients.extend(prefix_grants.iter().map(|g| g.recipient_id.clone()));
+    recipients.extend(file_grants.iter().map(|g| g.recipient_id.clone()));
+
+    // Delete VIEW_LINKs for all recipients
+    delete_view_links_batch(client, file_id, owner_id, &recipients).await?;
+
+    // Delete FILE grants (not PREFIX grants - those remain)
+    delete_file_grants(client, owner_id, file_id).await?;
+
+    // Delete FILE item
+    client.delete_item()
+        .table_name("FileMetadata")
+        .key("PK", AttributeValue::S(format!("USER#{}", owner_id)))
+        .key("SK", AttributeValue::S(format!("FILE#{}", file_path)))
+        .send()
+        .await?;
 
     Ok(())
 }
@@ -1545,7 +1405,7 @@ async fn find_prefix_grants(
     let mut grants = Vec::new();
     let mut last_key = None;
 
-    // Query for all grants by this owner that match this prefix or any parent prefix
+    // Query for all grants by this owner
     loop {
         let result = client.query()
             .table_name("FileMetadata")
@@ -1574,11 +1434,11 @@ async fn find_prefix_grants(
     Ok(grants)
 }
 
-// Helper function: Find all FILE grants for a specific file
-async fn find_file_grants(
+// Helper function: Find all FILE grants for a specific file path
+async fn find_file_grants_by_path(
     client: &DynamoDbClient,
     owner_id: &str,
-    file_id: &str
+    file_path: &str
 ) -> Result<Vec<ShareGrant>> {
     let mut grants = Vec::new();
     let mut last_key = None;
@@ -1587,8 +1447,10 @@ async fn find_file_grants(
         let result = client.query()
             .table_name("FileMetadata")
             .key_condition_expression("PK = :pk AND begins_with(SK, :sk_prefix)")
+            .filter_expression("FilePath = :file_path")
             .expression_attribute_values(":pk", AttributeValue::S(format!("USER#{}", owner_id)))
             .expression_attribute_values(":sk_prefix", AttributeValue::S("GRANT#".to_string()))
+            .expression_attribute_values(":file_path", AttributeValue::S(file_path.to_string()))
             .set_exclusive_start_key(last_key)
             .send()
             .await?;
@@ -1596,8 +1458,7 @@ async fn find_file_grants(
         for item in result.items.unwrap_or_default() {
             let grant = parse_grant(&item)?;
 
-            // Only include FILE grants that match this specific file
-            if grant.grant_type == "FILE" && grant.file_id.as_deref() == Some(file_id) {
+            if grant.grant_type == "FILE" {
                 grants.push(grant);
             }
         }
@@ -1611,293 +1472,596 @@ async fn find_file_grants(
     Ok(grants)
 }
 
-// Helper function: Get a specific file by FileID for FILE grant processing
-async fn get_file_by_id(
+// Helper function: Find all FILE grants for a specific FileID
+async fn find_file_grants_by_file_id(
     client: &DynamoDbClient,
     owner_id: &str,
     file_id: &str
-) -> Result<FileMetadata> {
-    // Query GSI2 to find the file by FileID
-    let result = client.query()
-        .table_name("FileMetadata")
-        .key_condition_expression("PK = :pk")
-        .filter_expression("FileID = :file_id AND ItemType = :item_type")
-        .expression_attribute_values(":pk", AttributeValue::S(format!("USER#{}", owner_id)))
-        .expression_attribute_values(":file_id", AttributeValue::S(file_id.to_string()))
-        .expression_attribute_values(":item_type", AttributeValue::S("FILE".to_string()))
-        .limit(1)
-        .send()
-        .await?;
+) -> Result<Vec<ShareGrant>> {
+    let mut grants = Vec::new();
+    let mut last_key = None;
 
-    let item = result.items
-        .and_then(|items| items.into_iter().next())
-        .ok_or_else(|| anyhow!("File not found: {}", file_id))?;
+    loop {
+        let result = client.query()
+            .table_name("FileMetadata")
+            .key_condition_expression("PK = :pk AND begins_with(SK, :sk_prefix)")
+            .filter_expression("FileID = :file_id")
+            .expression_attribute_values(":pk", AttributeValue::S(format!("USER#{}", owner_id)))
+            .expression_attribute_values(":sk_prefix", AttributeValue::S("GRANT#".to_string()))
+            .expression_attribute_values(":file_id", AttributeValue::S(file_id.to_string()))
+            .set_exclusive_start_key(last_key)
+            .send()
+            .await?;
 
-    parse_file(&item)
-}
-```
+        for item in result.items.unwrap_or_default() {
+            let grant = parse_grant(&item)?;
 
-### **4.2. SQS Cleanup Queue Configuration**
-
-Create an SQS queue for asynchronous VIEW_LINK cleanup when grants are revoked.
-
-```rust
-// Terraform configuration
-resource "aws_sqs_queue" "view_link_cleanup" {
-  name                       = "view-link-cleanup-queue"
-  visibility_timeout_seconds = 300  // 5 minutes for Lambda processing
-  message_retention_seconds  = 1209600  // 14 days
-  receive_wait_time_seconds  = 20  // Long polling
-
-  redrive_policy = jsonencode({
-    deadLetterTargetArn = aws_sqs_queue.view_link_cleanup_dlq.arn
-    maxReceiveCount     = 3
-  })
-}
-
-resource "aws_sqs_queue" "view_link_cleanup_dlq" {
-  name = "view-link-cleanup-dlq"
-}
-```
-
-**Cleanup Worker Lambda:**
-
-```rust
-use aws_lambda_events::event::sqs::{SqsEvent, SqsMessage};
-use serde::{Deserialize, Serialize};
-
-#[derive(Deserialize, Serialize)]
-struct CleanupMessage {
-    action: String,
-    grant_id: String,
-    owner_id: String,
-    recipient_id: String,
-    prefix: String,
-}
-
-async fn func(event: SqsEvent, _ctx: Context) -> Result<(), Error> {
-    let config = aws_config::load_from_env().await;
-    let client = DynamoDbClient::new(&config);
-
-    for record in event.records {
-        let message: CleanupMessage = serde_json::from_str(&record.body)?;
-
-        match message.action.as_str() {
-            "DELETE_VIEW_LINKS" => {
-                delete_view_links_for_grant(&client, &message).await?;
-            },
-            _ => {
-                eprintln!("Unknown action: {}", message.action);
+            if grant.grant_type == "FILE" {
+                grants.push(grant);
             }
         }
-    }
 
-    Ok(())
-}
-
-async fn delete_view_links_for_grant(
-    client: &DynamoDbClient,
-    message: &CleanupMessage
-) -> Result<()> {
-    // 1. Query owner's files for the prefix
-    let files = query_files_by_prefix(
-        client,
-        &message.owner_id,
-        &message.prefix
-    ).await?;
-
-    // 2. Delete VIEW_LINKs in batches of 25
-    for chunk in files.chunks(25) {
-        let delete_requests: Vec<_> = chunk.iter()
-            .map(|file| {
-                WriteRequest::builder()
-                    .delete_request(
-                        DeleteRequest::builder()
-                            .key("PK", AttributeValue::S(format!("USER#{}", message.recipient_id)))
-                            .key("SK", AttributeValue::S(format!("VIEWLINK#{}#{}", message.owner_id, file.file_id)))
-                            .build()
-                    )
-                    .build()
-            })
-            .collect();
-
-        client.batch_write_item()
-            .request_items("FileMetadata", delete_requests)
-            .send()
-            .await?;
-
-        // Small delay to avoid throttling
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-
-    Ok(())
-}
-```
-
-### **4.3. VIEW_LINK Creation for New PREFIX Grants**
-
-When a new PREFIX SHARE_GRANT is created, VIEW_LINKs (both file and folder markers) must be created for all existing files under that prefix. This is handled by an SQS worker to avoid blocking the grant creation operation. FILE grants are handled immediately in the stream processor (see Section 4.1) since they only require creating a single VIEW_LINK.
-
-```rust
-// SQS Worker handles CREATE_VIEW_LINKS messages for PREFIX grants
-async fn create_view_links_for_prefix_grant(
-    client: &DynamoDbClient,
-    message: &CreateViewLinksMessage
-) -> Result<()> {
-    // Only process PREFIX grants in this worker
-    if message.grant_type != "PREFIX" {
-        return Ok(()); // FILE grants are handled by stream processor
-    }
-
-    // Query all files under the granted prefix
-    let files = query_files_by_prefix(
-        client,
-        &message.owner_id,
-        &message.prefix
-    ).await?;
-
-    // Track unique folder paths to avoid duplicate folder markers
-    let mut folder_paths: std::collections::HashSet<String> = std::collections::HashSet::new();
-
-    // Extract all folder paths from files
-    for file in &files {
-        let segments: Vec<&str> = file.folder_prefix
-            .trim_end_matches('/')
-            .split('/')
-            .filter(|s| !s.is_empty())
-            .collect();
-
-        // Add each ancestor folder
-        for i in 0..segments.len() {
-            let folder_path = segments[..=i].join("/") + "/";
-            folder_paths.insert(folder_path);
+        if result.last_evaluated_key.is_none() {
+            break;
         }
+        last_key = result.last_evaluated_key;
     }
 
-    // Create items (files + folder markers)
-    let mut all_items = Vec::new();
+    Ok(grants)
+}
 
-    // Add file VIEW_LINKs
-    for file in &files {
-        all_items.push(create_file_view_link_item(
-            &message.recipient_id,
-            file,
-            &message.grant_id
-        ));
-    }
+// Helper function: Delete FILE grants for a deleted file
+async fn delete_file_grants(
+    client: &DynamoDbClient,
+    owner_id: &str,
+    file_id: &str
+) -> Result<()> {
+    let file_grants = find_file_grants_by_file_id(client, owner_id, file_id).await?;
 
-    // Add folder marker VIEW_LINKs
-    for folder_path in folder_paths {
-        all_items.push(create_folder_marker_item(
-            &message.recipient_id,
-            &message.owner_id,
-            &message.grant_id,
-            &folder_path
-        ));
-    }
-
-    // Batch write in chunks of 25
-    for chunk in all_items.chunks(25) {
-        let write_requests: Vec<_> = chunk.iter()
-            .map(|item| {
-                WriteRequest::builder()
-                    .put_request(
-                        PutRequest::builder()
-                            .set_item(Some(item.clone()))
-                            .build()
-                    )
-                    .build()
-            })
-            .collect();
-
-        client.batch_write_item()
-            .request_items("FileMetadata", write_requests)
+    for grant in file_grants {
+        client.delete_item()
+            .table_name("FileMetadata")
+            .key("PK", AttributeValue::S(format!("USER#{}", owner_id)))
+            .key("SK", AttributeValue::S(format!("GRANT#{}", grant.grant_id)))
             .send()
             .await?;
-
-        // Small delay to avoid throttling
-        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
     Ok(())
 }
 
-fn create_file_view_link_item(
+// Helper function: Delete VIEW_LINKs for multiple recipients
+async fn delete_view_links_batch(
+    client: &DynamoDbClient,
+    file_id: &str,
+    owner_id: &str,
+    recipients: &[String]
+) -> Result<()> {
+    for recipient_id in recipients {
+        client.delete_item()
+            .table_name("FileMetadata")
+            .key("PK", AttributeValue::S(format!("USER#{}", recipient_id)))
+            .key("SK", AttributeValue::S(format!("VIEWLINK#{}#{}", owner_id, file_id)))
+            .send()
+            .await?;
+    }
+
+    Ok(())
+}
+
+// Helper function: Create VIEW_LINK item
+fn create_file_view_link(
     recipient_id: &str,
-    file: &FileMetadata,
+    owner_id: &str,
+    file_id: &str,
+    file_name: &str,
+    folder_prefix: &str,
+    media_type: &str,
+    created_date: i64,
     grant_id: &str
 ) -> HashMap<String, AttributeValue> {
     hashmap! {
-        "PK".to_string() => AttributeValue::S(format!("USER#{}", recipient_id)),
-        "SK".to_string() => AttributeValue::S(format!("VIEWLINK#{}#{}", file.owner_id, file.file_id)),
-        "ItemType".to_string() => AttributeValue::S("VIEW_LINK".to_string()),
-        "FileID".to_string() => AttributeValue::S(file.file_id.clone()),
-        "OwnerID".to_string() => AttributeValue::S(file.owner_id.clone()),
-        "GrantID".to_string() => AttributeValue::S(grant_id.to_string()),
-        "CreatedDate".to_string() => AttributeValue::N(file.created_date.to_string()),
-        "FolderPrefix".to_string() => AttributeValue::S(file.folder_prefix.clone()),
-        "FileName".to_string() => AttributeValue::S(file.file_name.clone()),
-        "MediaType".to_string() => AttributeValue::S(file.media_type.clone()),
-        "GSI2-PK".to_string() => AttributeValue::S(
-            format!("VIEWER#{}#FOLDER#{}", recipient_id, file.folder_prefix)
+        "PK" => AttributeValue::S(format!("USER#{}", recipient_id)),
+        "SK" => AttributeValue::S(format!("VIEWLINK#{}#{}", owner_id, file_id)),
+        "ItemType" => AttributeValue::S("VIEW_LINK".to_string()),
+        "FileID" => AttributeValue::S(file_id.to_string()),
+        "OwnerID" => AttributeValue::S(owner_id.to_string()),
+        "GrantID" => AttributeValue::S(grant_id.to_string()),
+        "CreatedDate" => AttributeValue::N(created_date.to_string()),
+        "FolderPrefix" => AttributeValue::S(folder_prefix.to_string()),
+        "FileName" => AttributeValue::S(file_name.to_string()),
+        "MediaType" => AttributeValue::S(media_type.to_string()),
+        "GSI2-PK" => AttributeValue::S(
+            format!("VIEWER#{}#FOLDER#{}", recipient_id, folder_prefix)
         ),
-        "GSI2-SK".to_string() => AttributeValue::S(
-            format!("TYPE#FILE#{}#{}#{}", file.created_date, file.media_type, file.file_id)
+        "GSI2-SK" => AttributeValue::S(
+            format!("TYPE#FILE#{}#{}#{}", created_date, media_type, file_id)
         ),
     }
 }
 
-fn create_folder_marker_item(
+// Helper function: Create folder marker VIEW_LINKs for all ancestor folders
+fn create_folder_markers(
     recipient_id: &str,
     owner_id: &str,
     grant_id: &str,
-    full_folder_path: &str
-) -> HashMap<String, AttributeValue> {
-    // Extract parent folder and folder name
-    let segments: Vec<&str> = full_folder_path
+    folder_prefix: &str
+) -> Vec<HashMap<String, AttributeValue>> {
+    let mut markers = Vec::new();
+
+    // Extract all ancestor folder paths
+    let segments: Vec<&str> = folder_prefix
         .trim_end_matches('/')
         .split('/')
         .filter(|s| !s.is_empty())
         .collect();
 
-    let parent_prefix = if segments.len() > 1 {
-        segments[..segments.len()-1].join("/") + "/"
-    } else {
-        String::new()  // Root level
-    };
+    for i in 0..segments.len() {
+        let full_folder_path = segments[..=i].join("/") + "/";
+        let folder_name = segments[i];
+        let parent_folder = if i > 0 {
+            segments[..i].join("/") + "/"
+        } else {
+            String::new()
+        };
 
-    let folder_name = format!("{}/", segments.last().unwrap_or(&""));
+        let marker = hashmap! {
+            "PK" => AttributeValue::S(format!("USER#{}", recipient_id)),
+            "SK" => AttributeValue::S(format!("VIEWLINK#{}#FOLDER#{}", owner_id, full_folder_path)),
+            "ItemType" => AttributeValue::S("VIEW_LINK".to_string()),
+            "ItemSubtype" => AttributeValue::S("FOLDER_MARKER".to_string()),
+            "OwnerID" => AttributeValue::S(owner_id.to_string()),
+            "GrantID" => AttributeValue::S(grant_id.to_string()),
+            "FolderName" => AttributeValue::S(folder_name.to_string()),
+            "FolderPrefix" => AttributeValue::S(parent_folder.clone()),
+            "FullFolderPath" => AttributeValue::S(full_folder_path.clone()),
+            "GSI2-PK" => AttributeValue::S(
+                format!("VIEWER#{}#FOLDER#{}", recipient_id, parent_folder)
+            ),
+            "GSI2-SK" => AttributeValue::S(
+                format!("TYPE#FOLDER#{}", folder_name)
+            ),
+        };
 
-    hashmap! {
-        "PK".to_string() => AttributeValue::S(format!("USER#{}", recipient_id)),
-        "SK".to_string() => AttributeValue::S(
-            format!("VIEWLINK#{}#FOLDER#{}", owner_id, full_folder_path)
-        ),
-        "ItemType".to_string() => AttributeValue::S("VIEW_LINK".to_string()),
-        "FileID".to_string() => AttributeValue::S(format!("FOLDER#{}", full_folder_path)),
-        "OwnerID".to_string() => AttributeValue::S(owner_id.to_string()),
-        "GrantID".to_string() => AttributeValue::S(grant_id.to_string()),
-        "CreatedDate".to_string() => AttributeValue::N(
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_millis()
-                .to_string()
-        ),
-        "FolderPrefix".to_string() => AttributeValue::S(parent_prefix.clone()),
-        "FileName".to_string() => AttributeValue::S(folder_name.clone()),
-        "MediaType".to_string() => AttributeValue::S("application/x-directory".to_string()),
-        "GSI2-PK".to_string() => AttributeValue::S(
-            format!("VIEWER#{}#FOLDER#{}", recipient_id, parent_prefix)
-        ),
-        "GSI2-SK".to_string() => AttributeValue::S(
-            format!("TYPE#FOLDER#{}#{}", folder_name, owner_id)
-        ),
+        markers.push(marker);
     }
+
+    markers
+}
+
+// Helper function: Calculate folder prefix from file path
+fn calculate_folder_prefix(file_path: &str) -> String {
+    let segments: Vec<&str> = file_path.split('/').collect();
+    if segments.len() > 1 {
+        segments[..segments.len() - 1].join("/") + "/"
+    } else {
+        String::new()
+    }
+}
+
+// Helper function: Detect media type from file extension
+fn detect_media_type(file_name: &str) -> String {
+    let extension = file_name.split('.').last().unwrap_or("").to_lowercase();
+
+    match extension.as_str() {
+        "jpg" | "jpeg" | "png" | "gif" | "webp" | "heic" => "IMAGE",
+        "mp4" | "mov" | "avi" | "mkv" | "webm" => "VIDEO",
+        "mp3" | "wav" | "flac" | "aac" | "ogg" => "AUDIO",
+        "pdf" => "PDF",
+        "doc" | "docx" => "DOCUMENT",
+        "xls" | "xlsx" => "SPREADSHEET",
+        "txt" | "md" | "json" | "xml" | "csv" => "TEXT",
+        "zip" | "tar" | "gz" | "7z" | "rar" => "ARCHIVE",
+        _ => "OTHER",
+    }.to_string()
+}
+
+// Helper function: Parse SHARE_GRANT from DynamoDB item
+fn parse_grant(item: &HashMap<String, AttributeValue>) -> Result<ShareGrant> {
+    Ok(ShareGrant {
+        grant_id: item.get("GrantID")?.as_s()?.clone(),
+        owner_id: item.get("OwnerID")?.as_s()?.clone(),
+        recipient_id: item.get("RecipientID")?.as_s()?.clone(),
+        grant_type: item.get("GrantType")?.as_s()?.clone(),
+        prefix: item.get("Prefix").and_then(|v| v.as_s().ok()).unwrap_or("").to_string(),
+        file_id: item.get("FileID").and_then(|v| v.as_s().ok()).map(|s| s.to_string()),
+        file_path: item.get("FilePath").and_then(|v| v.as_s().ok()).map(|s| s.to_string()),
+    })
+}
+
+#[derive(Debug, Clone)]
+struct ShareGrant {
+    grant_id: String,
+    owner_id: String,
+    recipient_id: String,
+    grant_type: String,
+    prefix: String,
+    file_id: Option<String>,
+    file_path: Option<String>,
+}
+
+// Helper function: Batch write items with retry logic
+async fn batch_write_items(
+    client: &DynamoDbClient,
+    items: Vec<HashMap<String, AttributeValue>>
+) -> Result<()> {
+    const BATCH_SIZE: usize = 25; // DynamoDB limit
+
+    for chunk in items.chunks(BATCH_SIZE) {
+        let put_requests: Vec<_> = chunk.iter()
+            .map(|item| {
+                WriteRequest::builder()
+                    .put_request(PutRequest::builder().set_item(Some(item.clone())).build())
+                    .build()
+            })
+            .collect();
+
+        let mut request = client.batch_write_item()
+            .request_items("FileMetadata", put_requests);
+
+        // Retry with exponential backoff for unprocessed items
+        loop {
+            let response = request.send().await?;
+
+            if response.unprocessed_items.is_none() || response.unprocessed_items.unwrap().is_empty() {
+                break;
+            }
+
+            // Retry unprocessed items after delay
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            request = client.batch_write_item()
+                .set_request_items(response.unprocessed_items);
+        }
+    }
+
+    Ok(())
 }
 ```
 
-````
+**Key Points:**
+
+- ✅ **S3-Driven Lifecycle:** All file operations originate from S3 (upload, update, delete)
+- ✅ **SQS Decoupling:** S3 events queue to SQS, Lambda processes messages reliably
+- ✅ **Automatic VIEW_LINK Creation:** When file created, VIEW_LINKs created for owner + all grant recipients
+- ✅ **Automatic VIEW_LINK Cleanup:** When file deleted, all VIEW_LINKs cleaned up across all users
+- ✅ **Folder Marker Automation:** Folder markers created automatically for all ancestor folders
+- ✅ **Grant-Aware:** Respects both PREFIX and FILE grants when creating VIEW_LINKs
+- ✅ **Idempotent:** Can safely retry failed events without duplication issues
+
+### **4.2. RESTful API Endpoints**
+
+The service exposes a synchronous RESTful API for file metadata queries, folder operations, and grant management. All API operations complete fully before returning to the client (no async jobs or 202 Accepted responses for MVP).
+
+**Authentication:** All API endpoints require JWT authentication via Firebase. A middleware extracts `user_id` from the JWT token in the `Authorization: Bearer <token>` header.
+
+**Base URL Pattern:** `/storage/{owner-id}/{path}`
+
+#### **4.2.1. Get File Metadata**
+
+**Purpose:** Retrieve metadata for a specific file.
+
+```http
+GET /storage/{owner-id}/{file-path}
+Authorization: Bearer <jwt-token>
+
+Response 200 OK:
+{
+  "file_id": "F123",
+  "owner_id": "Sheldon",
+  "file_name": "vacation.jpg",
+  "folder_prefix": "media/photos/2024/",
+  "media_type": "IMAGE",
+  "created_date": 1700000000,
+  "size": 2048576,
+  "s3_key": "Sheldon/media/photos/2024/vacation.jpg"
+}
+
+Response 403 Forbidden:
+{
+  "error": "ACCESS_DENIED",
+  "message": "No VIEW_LINK found for this file"
+}
+
+Response 404 Not Found:
+{
+  "error": "FILE_NOT_FOUND"
+}
+```
+
+**Implementation:**
+
+1. Extract `user_id` from JWT
+2. Query: `PK = USER#{owner-id}`, `SK = FILE#{file-path}`
+3. Validate permission: Check VIEW_LINK exists (`PK = USER#{user_id}`, `SK = VIEWLINK#{owner-id}#{file_id}`)
+4. Return FILE metadata if authorized
+
+#### **4.2.2. List Folder Contents** ⚠️ **CRITICAL ENDPOINT**
+
+**Purpose:** Browse folder contents (subfolders + files). This is the most performance-critical endpoint.
+
+```http
+GET /storage/{owner-id}/{folder-path}/
+Authorization: Bearer <jwt-token>
+
+Query Parameters:
+- media_type: Optional filter (IMAGE, VIDEO, DOCUMENT, etc.)
+- sort: "newest" | "oldest" (default: "newest")
+- limit: Page size (default: 50, max: 100)
+- cursor: Pagination token from previous response
+
+Response 200 OK:
+{
+  "subfolders": [
+    {
+      "name": "2024/",
+      "full_path": "media/photos/2024/",
+      "owner_id": "Sheldon"
+    }
+  ],
+  "files": [
+    {
+      "file_id": "F123",
+      "owner_id": "Sheldon",
+      "file_name": "vacation.jpg",
+      "media_type": "IMAGE",
+      "created_date": 1700000000,
+      "size": 2048576
+    }
+  ],
+  "next_cursor": "eyJQSyI6IlVTRVIjU2hlbGRvbiIsIC4uLn0="
+}
+
+Response 403 Forbidden:
+{
+  "error": "ACCESS_DENIED",
+  "message": "No VIEW_LINK folder marker found"
+}
+```
+
+**Implementation:**
+
+1. Extract `user_id` from JWT
+2. Query GSI2: `GSI2-PK = VIEWER#{user_id}#FOLDER#{folder-path}`
+3. Separate folder markers (ItemSubtype=FOLDER_MARKER) from files
+4. Apply media_type filter if specified (uses FilterExpression)
+5. Return paginated results
+
+**Performance Considerations:**
+
+- For folders with 1000+ files, consider implementing server-side caching (30-60 second TTL)
+- Use DynamoDB Accelerator (DAX) for sub-millisecond reads
+- Optimize GSI2 projection to minimize item size
+- FilterExpression counts against RCU even for filtered items
+
+#### **4.2.3. Create Folder Marker**
+
+**Purpose:** Explicitly create an empty folder (S3 event processor creates them automatically when files are uploaded).
+
+```http
+POST /storage/{owner-id}/{folder-path}/
+Authorization: Bearer <jwt-token>
+
+Request Body:
+{
+  "folder_name": "2024/"
+}
+
+Response 201 Created:
+{
+  "folder_path": "media/photos/2024/",
+  "created": true
+}
+
+Response 409 Conflict:
+{
+  "error": "FOLDER_EXISTS",
+  "message": "Folder marker already exists"
+}
+```
+
+**Implementation:**
+
+1. Extract `user_id` from JWT, verify `user_id == owner-id`
+2. Create VIEW_LINK folder marker with `condition_expression: attribute_not_exists(PK)` for idempotency
+3. Return 201 or 409
+
+#### **4.2.4. Create Share Grant (PREFIX or FILE)**
+
+**Purpose:** Share a folder (PREFIX grant) or individual file (FILE grant) with another user.
+
+```http
+POST /storage/grants
+Authorization: Bearer <jwt-token>
+
+Request Body (PREFIX Grant):
+{
+  "recipient_email": "justin@example.com",
+  "grant_type": "PREFIX",
+  "prefix": "media/photos/",
+  "permissions": "READ_ONLY"
+}
+
+Request Body (FILE Grant):
+{
+  "recipient_email": "justin@example.com",
+  "grant_type": "FILE",
+  "file_path": "media/private/confidential.pdf",
+  "permissions": "READ_ONLY"
+}
+
+Response 201 Created:
+{
+  "grant_id": "G789",
+  "owner_id": "Sheldon",
+  "recipient_id": "Justin",
+  "grant_type": "PREFIX",
+  "prefix": "media/photos/",
+  "permissions": "READ_ONLY",
+  "created_date": 1700000000,
+  "view_links_created": 1543
+}
+
+Response 400 Bad Request:
+{
+  "error": "INVALID_RECIPIENT",
+  "message": "Recipient user not found"
+}
+```
+
+**Implementation:**
+
+1. Extract `user_id` from JWT (owner)
+2. Lookup recipient_id from recipient_email
+3. Create SHARE_GRANT item
+4. **For PREFIX grants:** Query all files under prefix, create VIEW_LINKs + folder markers synchronously
+5. **For FILE grants:** Get FILE item, create single VIEW_LINK synchronously
+6. Return grant details with VIEW_LINK count
+
+**Performance Note:** For large PREFIX grants (>1000 files), this may take 10-30 seconds. Show progress indicator in UI. Future optimization could make this async with job tracking.
+
+#### **4.2.5. List Grants (Owned or Received)**
+
+**Purpose:** List all grants created by user or received by user.
+
+```http
+GET /storage/grants
+Authorization: Bearer <jwt-token>
+
+Query Parameters:
+- filter: "owned" | "received" (default: "owned")
+- limit: Page size (default: 50, max: 100)
+- cursor: Pagination token
+
+Response 200 OK (filter=owned):
+{
+  "grants": [
+    {
+      "grant_id": "G789",
+      "recipient_id": "Justin",
+      "recipient_email": "justin@example.com",
+      "grant_type": "PREFIX",
+      "prefix": "media/photos/",
+      "permissions": "READ_ONLY",
+      "created_date": 1700000000
+    }
+  ],
+  "next_cursor": null
+}
+```
+
+**Implementation:**
+
+- **filter=owned:** Query `PK = USER#{user_id}`, `SK begins_with GRANT#`
+- **filter=received:** Query GSI1: `GSI1-PK = ACCESS#{user_id}`
+- Enrich with user emails
+- Return paginated results
+
+#### **4.2.6. Get Grant Details**
+
+**Purpose:** Get detailed information about a specific grant.
+
+```http
+GET /storage/grants/{grant-id}
+Authorization: Bearer <jwt-token>
+
+Response 200 OK:
+{
+  "grant_id": "G789",
+  "owner_id": "Sheldon",
+  "recipient_id": "Justin",
+  "grant_type": "PREFIX",
+  "prefix": "media/photos/",
+  "permissions": "READ_ONLY",
+  "created_date": 1700000000,
+  "file_count": 1543
+}
+
+Response 403 Forbidden:
+{
+  "error": "ACCESS_DENIED"
+}
+```
+
+**Implementation:**
+
+1. Extract `user_id` from JWT
+2. Query grant by PK/SK
+3. Verify `user_id == owner_id OR user_id == recipient_id`
+4. Return grant details
+
+#### **4.2.7. Revoke Grant**
+
+**Purpose:** Delete a grant, removing all access for the recipient.
+
+```http
+DELETE /storage/grants/{grant-id}
+Authorization: Bearer <jwt-token>
+
+Response 204 No Content
+
+Response 403 Forbidden:
+{
+  "error": "ACCESS_DENIED",
+  "message": "Only grant owner can revoke"
+}
+```
+
+**Implementation:**
+
+1. Extract `user_id` from JWT
+2. Get SHARE_GRANT, verify `user_id == owner_id`
+3. **For PREFIX grants:** Query all VIEW_LINKs for recipient under prefix, delete synchronously
+4. **For FILE grants:** Delete single VIEW_LINK for recipient
+5. Delete SHARE_GRANT item
+6. Return 204
+
+**Performance Note:** Revoking PREFIX grants with many files may take 10-30 seconds.
+
+#### **4.2.8. Delete Folder**
+
+**Purpose:** Delete an empty folder marker.
+
+```http
+DELETE /storage/{owner-id}/{folder-path}/
+Authorization: Bearer <jwt-token>
+
+Response 204 No Content
+
+Response 400 Bad Request:
+{
+  "error": "FOLDER_NOT_EMPTY",
+  "message": "Folder contains files or subfolders"
+}
+```
+
+**Implementation:**
+
+1. Extract `user_id` from JWT, verify `user_id == owner-id`
+2. Query GSI2 to check for files/subfolders
+3. If not empty, return 400
+4. Delete folder marker VIEW_LINK
+5. Return 204
+
+**Safety Constraint:** Folders must be empty before deletion. Files must be deleted via S3 (which triggers S3 event processor to clean up DynamoDB).
+
+### **4.3. API Design Principles**
+
+- ✅ **Synchronous Operations:** All endpoints complete before returning (no job tracking for MVP)
+- ✅ **JWT-Based Auth:** Firebase JWT middleware extracts `user_id`
+- ✅ **VIEW_LINK Permission Model:** Access validation via VIEW_LINK existence check
+- ✅ **RESTful URLs:** Paths mirror file structure
+- ✅ **Idempotent Where Possible:** Use conditional writes
+- ✅ **Clear Error Messages:** 403 (access denied), 404 (not found), 400 (validation error)
+- ✅ **Pagination Support:** Cursor-based pagination for list operations
+- ✅ **Performance Aware:** Critical endpoints flagged for optimization
+
+**Future Enhancements (Post-MVP):**
+
+- Async grant creation/revocation with job tracking
+- Batch operations
+- Grant expiration and time-limited sharing
+- Fine-grained permissions (READ_ONLY, READ_WRITE, FULL_CONTROL)
+- Folder rename/move operations
 
 ### **4.4. Folder Browsing Implementation**
 
@@ -2053,7 +2217,7 @@ async fn example_usage() -> Result<()> {
 
     Ok(())
 }
-````
+```
 
 **Key Benefits:**
 
@@ -2145,11 +2309,11 @@ async fn validate_file_write_access(
 - ✅ **Unified Validation:** Same logic works for PREFIX and FILE grants
 - ✅ **Simple Check:** VIEW_LINK existence = access granted
 - ✅ **Performance:** Single query to user's partition (no need to query grants)
-- ✅ **Security:** VIEW_LINKs can only be created by trusted stream processor
+- ✅ **Security:** VIEW_LINKs can only be created by trusted S3 event processor or grant API
 - ✅ **Audit Trail:** `GrantID` attribute enables tracking which grant authorized access
-- ✅ **Consistent:** Impossible for VIEW_LINK to exist without corresponding SHARE_GRANT (enforced by streams)
+- ✅ **Consistent:** Impossible for VIEW_LINK to exist without corresponding SHARE_GRANT (enforced by S3 processor and API)
 
-**Design Note:** This validation approach relies on the integrity of VIEW_LINKs being maintained by the stream processor. Direct manipulation of VIEW_LINKs bypassing the stream processor would break security. Therefore, all VIEW_LINK creation/deletion MUST go through FILE/SHARE_GRANT operations that trigger stream processing.
+**Design Note:** This validation approach relies on the integrity of VIEW_LINKs being maintained by the S3 event processor and grant API. Direct manipulation of VIEW_LINKs bypassing these trusted processes would break security. Therefore, all VIEW_LINK creation/deletion MUST go through S3 events or grant API operations.
 
 ````
 
