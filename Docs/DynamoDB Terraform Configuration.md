@@ -26,11 +26,15 @@ attribute { name = "GSI2-SK" type = "S" }
 
 # GSI 1: ShareAccessIndex (Recipient's "Shared With Me" View)
 
-# Purpose: Allows a recipient to find all prefix-level grants they have received.
+# Purpose: Allows a recipient to find all grants they have received (PREFIX and FILE grants).
 
-# Query Pattern: GSI1-PK = "ACCESS#<RecipientID>" returns all folders shared with that user.
+# Query Pattern: GSI1-PK = "ACCESS#<RecipientID>" returns all folders and individual files shared with that user.
 
-# Key Design: Each SHARE_GRANT represents access to a folder prefix and all files within it.
+# Key Design:
+
+# - PREFIX grants: Access to folder prefix and all files within it (GSI1-SK = "GRANT#<OwnerID>#<Prefix>")
+
+# - FILE grants: Access to single file without folder access (GSI1-SK = "GRANT#<OwnerID>#FILE#<FileID>")
 
 global_secondary_index {
 name = "ShareAccessIndex"
@@ -39,38 +43,54 @@ range_key = "GSI1-SK"
 projection_type = "INCLUDE" # Project attributes needed to display the "Shared With Me" list
 non_key_attributes = [
 "GrantID", # Unique grant identifier
-"OwnerID", # Who shared the folder
+"GrantType", # "PREFIX" or "FILE" - distinguishes folder grants from file grants
+"OwnerID", # Who shared the folder/file
 "Permissions", # READ or READ/WRITE
-"Prefix", # The folder path that was shared (e.g., "media/photos/")
+"Prefix", # The folder path that was shared (PREFIX grants only)
+"FileID", # The specific file shared (FILE grants only)
+"FilePath", # Human-readable path for FILE grants (for UI display)
 "CreatedDate" # When the share was created
 ]
 }
 
-# GSI 2: MergedFolderViewIndex (Merged, Filterable Folder View)
+# GSI 2: MergedFolderViewIndex (Universal Folder Browsing)
 
-# Purpose: Allows a user to see a merged list of contents from multiple shared folders
+# Purpose: Primary access pattern for ALL folder browsing operations, regardless of ownership.
 
-# with the same name (e.g., "Project Docs/" from Sheldon and Leigh), with efficient
+# Supports S3-style folder derivation using folder marker VIEW_LINKs and file VIEW_LINKs.
 
-# filtering by media type and sorting by creation date.
+# Owners and recipients use the same query pattern to view folder contents.
 
-# Query Pattern: GSI2-PK = "VIEWER#<RecipientID>#FOLDER#<FolderName>"
+# Query Pattern: GSI2-PK = "VIEWER#<UserID>#FOLDER#<FolderPrefix>" returns all visible
 
-# Sort Key enables: filtering (begins_with "image/"), sorting (by timestamp), pagination
+# folder markers (subfolders) and files, with folders sorted first.
+
+# Sort Key Design: TYPE# prefix enables single-query folder+file browsing:
+
+# - Folder markers: TYPE#FOLDER#<folder_name>#<OwnerID>
+
+# - File VIEW_LINKs: TYPE#FILE#<timestamp>#<media_type>#<file_id>
+
+# Folders naturally sort before files, mimicking S3 bucket browser behavior.
+
+# Timestamp-first design enables pure chronological sorting across all media types and owners.
+
+# Key Benefits: Unified access pattern, no conditional logic, consistent UX, native pagination.
 
 global_secondary_index {
 name = "MergedFolderViewIndex"
 hash_key = "GSI2-PK"
 range_key = "GSI2-SK"
-projection_type = "INCLUDE" # Project attributes needed to render the folder list item
+projection_type = "INCLUDE" # Project attributes needed to render folder and file items
 non_key_attributes = [
-"FileID", # Unique file identifier
-"OwnerID", # Who owns the file
+"FileID", # File UUID or "FOLDER#<path>" for folder markers
+"OwnerID", # Who owns the file or folder marker
 "GrantID", # Which grant authorized this view (for validation)
-"CreatedDate", # File creation timestamp
-"FileName", # Display name
-"MediaType", # MIME type (also in sort key for filtering)
-"Size" # File size in bytes
+"CreatedDate", # File/folder creation timestamp
+"FileName", # Display name (e.g., "photo.jpg" or "photos/")
+"FolderPrefix", # Parent folder path
+"MediaType", # MIME type (files only)
+"Size" # File size in bytes (files only)
 ]
 }
 
@@ -120,13 +140,17 @@ Service = "FileSharing"
 
 # Event source mapping for DynamoDB Streams
 
+# Processes FILE and SHARE_GRANT changes to maintain VIEW_LINKs and folder markers
+
 resource "aws_lambda_event_source_mapping" "stream_trigger" {
 event_source_arn = aws_dynamodb_table.file_metadata.stream_arn
 function_name = aws_lambda_function.stream_processor.arn
 starting_position = "LATEST"
 batch_size = 100
 
-# Filter to only process FILE and GRANT items
+# Filter to only process FILE and SHARE_GRANT items
+
+# Stream processor creates VIEW_LINKs (both file and folder marker types)
 
 filter_criteria {
 filter {
@@ -241,7 +265,7 @@ Action = [
 "dynamodb:DescribeStream",
 "dynamodb:ListStreams"
 ]
-Resource = aws_dynamodb_table.file_metadata.stream_arn
+Resource = aws*dynamodb_table.file_metadata.stream_arn
 },
 {
 Effect = "Allow"
@@ -263,7 +287,7 @@ Action = [
 "logs:CreateLogStream",
 "logs:PutLogEvents"
 ]
-Resource = "arn:aws:logs:_:_:\*"
+Resource = "arn:aws:logs:\*:\_:\*"
 }
 ]
 })
@@ -302,7 +326,7 @@ Action = [
 "sqs:DeleteMessage",
 "sqs:GetQueueAttributes"
 ]
-Resource = aws_sqs_queue.view_link_cleanup.arn
+Resource = aws*sqs_queue.view_link_cleanup.arn
 },
 {
 Effect = "Allow"
@@ -323,7 +347,7 @@ Action = [
 "logs:CreateLogStream",
 "logs:PutLogEvents"
 ]
-Resource = "arn:aws:logs:_:_:\*"
+Resource = "arn:aws:logs:\*:\_:\*"
 }
 ]
 })
