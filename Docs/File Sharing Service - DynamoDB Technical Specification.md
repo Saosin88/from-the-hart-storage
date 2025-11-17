@@ -45,7 +45,7 @@ All file metadata, sharing permissions, and denormalized links for different vie
 | Key Type               | Attribute Name | Data Type  | Purpose                                                                                   |
 | :--------------------- | :------------- | :--------- | :---------------------------------------------------------------------------------------- |
 | **Partition Key (PK)** | `PK`           | String (S) | **`USER#<UserID>`** (Primary data locality)                                               |
-| **Sort Key (SK)**      | `SK`           | String (S) | **`FILE#<Path>`**, **`GRANT#<RecipientID>#<GrantID>`**, **`VIEWLINK#<OwnerID>#<FileID>`** |
+| **Sort Key (SK)**      | `SK`           | String (S) | **FILE items:** `FILE#<Path>`<br>**SHARE_GRANT items:** `GRANT#<RecipientID>#<GrantID>`<br>**VIEW_LINK items:** `VIEWLINK#<OwnerID>#<ResourceID>` (file) or `VIEWLINK#<OwnerID>#FOLDER#<Path>` (folder marker) |
 
 ### **1.3. Global Secondary Indexes (GSIs)**
 
@@ -53,13 +53,8 @@ GSIs are the key to enabling the complex, high-performance query patterns requir
 
 | Index Name                       | Partition Key                                            | Sort Key                                    | Access Pattern                                                                                                                                                                                                                                                                                                                                                             |
 | :------------------------------- | :------------------------------------------------------- | :------------------------------------------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **GSI 1: ShareAccessIndex**      | `GSI1-PK` (`ACCESS#<RecipientID>`)                       | `GSI1-SK` (`GRANT#<OwnerID>#<Prefix>`)      | Lists all prefix-level grants **shared with a user** ("Shared With Me" view). Each item represents access to a folder prefix and all files within it.                                                                                                                                                                                                                      |
-| **GSI 2: MergedFolderViewIndex** | `GSI2-PK` (`VIEWER#<RecipientID>#FOLDER#<FolderPrefix>`) | `GSI2-SK` (`TYPE#<FOLDER\|FILE>#<SortKey>`) | **Primary access pattern for ALL folder browsing.** Gets a merged, sorted list of a folder's subfolders and files for a specific user. The sort key design (`TYPE#FOLDER#` vs `TYPE#FILE#`) ensures folders appear first, mimicking S3's bucket browsing behavior. This unified pattern works identically whether the user is viewing their own folder or a shared folder. |
-
-**GSI2 Sort Key Design:**
-
-- **Folder markers:** `TYPE#FOLDER#<FolderName>#<OwnerID>` (sorts first, allows multiple owners of same subfolder)
-- **File items:** `TYPE#FILE#<Timestamp>#<MediaType>#<FileID>` (sorts after folders, enables pure chronological sorting across all media types)
+| **GSI 1: GrantIndex**      | `GSI1-PK` (`ACCESS#<RecipientID>`)                       | `GSI1-SK` - **PREFIX grants:** `GRANT#<OwnerID>#<Prefix>`<br>**FILE grants:** `GRANT#<OwnerID>#FILE#<ResourceID>`      | Lists all prefix-level grants **shared with a user** ("Shared With Me" view). Each item represents access to a folder prefix and all files within it, or access to a single specific file.                                                                                                                                                                                                                      |
+| **GSI 2: ViewLinkIndex** | `GSI2-PK` (`VIEWER#<RecipientID>#FOLDER#<FolderPrefix>`) | `GSI2-SK` - **Folder markers:** `TYPE#FOLDER#<FolderName>#<OwnerID>`<br>**File items:** `TYPE#FILE#<Timestamp>#<MediaType>#<ResourceID>` | **Primary access pattern for ALL folder browsing.** Gets a merged, sorted list of a folder's subfolders and files for a specific user. The sort key design (`TYPE#FOLDER#` vs `TYPE#FILE#`) ensures folders appear first, mimicking S3's bucket browsing behavior. Timestamp-first file sorting enables pure chronological sorting across all media types and owners. This unified pattern works identically whether the user is viewing their own folder or a shared folder. |
 
 ## **2. Detailed Data Modeling and Item Structures**
 
@@ -76,11 +71,13 @@ This is the canonical record for a file, stored on the **Owner's** partition. It
 
 **Usage:** FILE items are accessed ONLY for direct file operations:
 
-- Creating a new file (upload)
-- Updating file metadata (rename, tag changes)
-- Deleting a file
+- Creating a new file (upload) - **triggered by S3 event only**
+- Updating file metadata (rename, tag changes) - **triggered by S3 event only**
+- Deleting a file - **triggered by S3 event only**
 - Direct file access (download, get S3 key for signed URL)
 - Admin operations (bulk exports, data migrations)
+
+**Critical Architectural Note:** All file create/update/delete operations happen directly in S3 through **CloudFront OAC (Origin Access Control) with signed URLs**. Users never interact with S3 directly. S3 events (ObjectCreated/ObjectRemoved) trigger SQS messages that Lambda processors use to create/update/delete FILE items in DynamoDB. The API never directly creates or modifies FILE items.
 
 **Not Used For:** Folder browsing or listing files. All folder views use VIEW_LINK items via GSI2.
 
@@ -89,7 +86,7 @@ This is the canonical record for a file, stored on the **Owner's** partition. It
 | **PK**          | `USER#<UserID>`       | `USER#Sheldon`                            |
 | **SK**          | `FILE#<FilePath>`     | `FILE#media/Project Docs/DSCN0010.jpg`    |
 | `ItemType`      | `FILE`                | `FILE`                                    |
-| `FileID`        | `<UUID>`              | `R102`                                    |
+| `ResourceID`        | `<UUID>`              | `R102`                                    |
 | `OwnerID`       | `<UserID>`            | `Sheldon`                                 |
 | `FileName`      | `<string>`            | `DSCN0010.jpg`                            |
 | `FolderPrefix`  | `<string>`            | `media/Project Docs/`                     |
@@ -103,7 +100,7 @@ This is the canonical record for a file, stored on the **Owner's** partition. It
 
 **Note on S3 Storage:** Physical files are stored in S3 with keys matching the full path (e.g., `Sheldon/media/Project Docs/DSCN0010.jpg`). There are NO folder objects in S3 - folders are purely logical concepts derived from file paths.
 
-**Note on Direct Access:** To retrieve a specific file (for download, update, or delete), query the base table using `PK = USER#<OwnerID>` and `SK = FILE#<FilePath>`. This is the only time you should query FILE items directly.
+**Note on Direct Access:** To retrieve a specific file (for download), query the base table using `PK = USER#<OwnerID>` and `SK = FILE#<FilePath>` to get the S3 key, then generate a CloudFront signed URL for secure access. For create/update/delete operations, users obtain CloudFront signed URLs directly (via API) and perform the operation through CloudFront, which triggers S3 events that update DynamoDB. FILE items in DynamoDB are never directly modified by API operations - they are only created/updated/deleted by S3 event processors.
 
 ### **2.2. Item Type: SHARE_GRANT (Access Permission)**
 
@@ -155,19 +152,19 @@ A FILE grant provides access to a single specific file without granting access t
 | `OwnerID`     | `<UserID>`                      | `Sheldon`                         |
 | `RecipientID` | `<UserID>`                      | `Justin`                          |
 | `Permissions` | `READ`, `READ/WRITE`            | `READ`                            |
-| `FileID`      | `<UUID>`                        | `R102`                            |
+| `ResourceID`      | `<UUID>`                        | `R102`                            |
 | `FilePath`    | `<FullPath>`                    | `media/Project Docs/DSCN0010.jpg` |
 | `CreatedDate` | `<Timestamp>`                   | `1234567890000`                   |
 | **`GSI1-PK`** | `ACCESS#<RecipientID>`          | `ACCESS#Justin`                   |
-| **`GSI1-SK`** | `GRANT#<OwnerID>#FILE#<FileID>` | `GRANT#Sheldon#FILE#R102`         |
+| **`GSI1-SK`** | `GRANT#<OwnerID>#FILE#<ResourceID>` | `GRANT#Sheldon#FILE#R102`         |
 
 **Key Design Notes:**
 
 - **GrantType:** Set to `FILE` to indicate file-specific access. This enables the grant creation API to create a single VIEW_LINK for just this file.
-- **FileID and FilePath:** Both attributes are stored for efficient lookup and audit logging. `FileID` is the unique file identifier (UUID), and `FilePath` is the human-readable full path.
+- **ResourceID and FilePath:** Both attributes are stored for efficient lookup and audit logging. `ResourceID` is the unique file identifier (UUID), and `FilePath` is the human-readable full path.
 - **No Prefix Attribute:** FILE grants do NOT include a `Prefix` attribute since they don't grant folder-level access. The recipient cannot browse the parent folder `media/Project Docs/` - they only see this specific file.
 - **Single VIEW_LINK Creation:** When a FILE grant is created, the API creates exactly ONE VIEW_LINK pointing to this file synchronously. No folder markers or sibling files are visible to the recipient.
-- **GSI1-SK Format:** FILE grants use a different GSI1-SK pattern (`GRANT#<OwnerID>#FILE#<FileID>`) to distinguish them from PREFIX grants in the "Shared With Me" view. The UI can group PREFIX grants as folders and FILE grants as individual files.
+- **GSI1-SK Format:** FILE grants use a different GSI1-SK pattern (`GRANT#<OwnerID>#FILE#<ResourceID>`) to distinguish them from PREFIX grants in the "Shared With Me" view. The UI can group PREFIX grants as folders and FILE grants as individual files.
 - **Use Case:** Share a single vacation photo from a private folder, share a confidential document without exposing other files in the same directory, or grant access to a specific report without revealing the entire reports archive.
 - **Atomic Revocation:** Deleting the FILE grant immediately removes access. The single VIEW_LINK is deleted synchronously by the API.
 
@@ -191,8 +188,8 @@ A denormalized pointer created for every file and folder a user can view. VIEW_L
 
 **Two Subtypes:**
 
-1. **File VIEW_LINK:** Points to an actual file (`FileID` is a UUID)
-2. **Folder Marker VIEW_LINK:** Represents a subfolder (`FileID = "FOLDER#<FullFolderPath>"`)
+1. **File VIEW_LINK:** Points to an actual file (`ResourceID` is a UUID)
+2. **Folder Marker VIEW_LINK:** Represents a subfolder (`ResourceID = "FOLDER#<FullFolderPath>"`)
 
 **Creation Strategy:** VIEW_LINKs are created **automatically** whenever:
 
@@ -217,9 +214,9 @@ This means owners always browse their files through VIEW_LINKs, just like recipi
 | Attribute      | Value Format                                 | Example (Justin viewing Sheldon's R102)    |
 | :------------- | :------------------------------------------- | :----------------------------------------- |
 | **PK**         | `USER#<ViewerID>`                            | `USER#Justin`                              |
-| **SK**         | `VIEWLINK#<OwnerID>#<FileID>`                | `VIEWLINK#Sheldon#R102`                    |
+| **SK**         | `VIEWLINK#<OwnerID>#<ResourceID>`                | `VIEWLINK#Sheldon#R102`                    |
 | `ItemType`     | `VIEW_LINK`                                  | `VIEW_LINK`                                |
-| `FileID`       | `<UUID>`                                     | `R102`                                     |
+| `ResourceID`       | `<UUID>`                                     | `R102`                                     |
 | `OwnerID`      | `<UserID>`                                   | `Sheldon`                                  |
 | `GrantID`      | `<UUID>` or `"OWNER"`                        | `G-a1b2c3d4`                               |
 | `CreatedDate`  | `<Timestamp>`                                | `1224685719000`                            |
@@ -227,7 +224,7 @@ This means owners always browse their files through VIEW_LINKs, just like recipi
 | `FileName`     | `<string>`                                   | `DSCN0010.jpg`                             |
 | `MediaType`    | `<MIME Type>`                                | `image/jpeg`                               |
 | **`GSI2-PK`**  | `VIEWER#<ViewerID>#FOLDER#<FolderPrefix>`    | `VIEWER#Justin#FOLDER#media/Project Docs/` |
-| **`GSI2-SK`**  | `TYPE#FILE#<Timestamp>#<MediaType>#<FileID>` | `TYPE#FILE#1224685719000#image/jpeg#R102`  |
+| **`GSI2-SK`**  | `TYPE#FILE#<Timestamp>#<MediaType>#<ResourceID>` | `TYPE#FILE#1224685719000#image/jpeg#R102`  |
 
 #### **2.4.2. Folder Marker VIEW_LINK (Subfolders)**
 
@@ -238,7 +235,7 @@ Folder markers enable S3-style folder navigation by representing subfolders as q
 | **PK**         | `USER#<ViewerID>`                            | `USER#Justin`                                     |
 | **SK**         | `VIEWLINK#<OwnerID>#FOLDER#<FullFolderPath>` | `VIEWLINK#Sheldon#FOLDER#media/photos/`           |
 | `ItemType`     | `VIEW_LINK`                                  | `VIEW_LINK`                                       |
-| `FileID`       | `FOLDER#<FullFolderPath>`                    | `FOLDER#media/photos/`                            |
+| `ResourceID`       | `FOLDER#<FullFolderPath>`                    | `FOLDER#media/photos/`                            |
 | `OwnerID`      | `<UserID>`                                   | `Sheldon`                                         |
 | `GrantID`      | `<UUID>` or `"OWNER"`                        | `G-a1b2c3d4`                                      |
 | `CreatedDate`  | `<Timestamp>`                                | `1224685719000`                                   |
@@ -250,7 +247,7 @@ Folder markers enable S3-style folder navigation by representing subfolders as q
 
 **Key Design Notes:**
 
-- **FileID Format:** For folder markers, `FileID = "FOLDER#<FullFolderPath>"` uniquely identifies the folder.
+- **ResourceID Format:** For folder markers, `ResourceID = "FOLDER#<FullFolderPath>"` uniquely identifies the folder.
 - **GSI2-SK Design:** The `TYPE#FOLDER#` prefix ensures folders sort before files (`TYPE#FILE#`), mimicking S3's UI behavior where folders appear first.
 - **OwnerID in Sort Key:** Including `OwnerID` in `GSI2-SK` allows multiple owners to contribute subfolders with the same name (e.g., both Sheldon and Leigh have `photos/` folders that Justin can access).
 - **Automatic Creation:** When a file is uploaded to `media/photos/2024/vacation/img.jpg`, folder markers are automatically created for:
@@ -263,7 +260,7 @@ Folder markers enable S3-style folder navigation by representing subfolders as q
 
 #### **2.4.3. GSI2 Sort Key Design Trade-off**
 
-The FILE VIEW_LINK sort key format `TYPE#FILE#<Timestamp>#<MediaType>#<FileID>` prioritizes **pure chronological sorting** across all file types. This design choice directly optimizes for the primary use case of browsing merged folders with files from multiple owners sorted by creation date.
+The FILE VIEW_LINK sort key format `TYPE#FILE#<Timestamp>#<MediaType>#<ResourceID>` prioritizes **pure chronological sorting** across all file types. This design choice directly optimizes for the primary use case of browsing merged folders with files from multiple owners sorted by creation date.
 
 **✅ Primary Use Case: Cross-Owner Chronological Browsing**
 
@@ -299,7 +296,7 @@ To filter by media type (e.g., "show only images"), you must use a `FilterExpres
 // Query with media type filter
 let result = client.query()
     .table_name("FileMetadata")
-    .index_name("MergedFolderViewIndex")
+    .index_name("ViewLinkIndex")
     .key_condition_expression("GSI2-PK = :pk")
     .filter_expression("begins_with(MediaType, :media_type)")
     .expression_attribute_values(":pk", AttributeValue::S("VIEWER#Justin#FOLDER#media/"))
@@ -319,7 +316,7 @@ let result = client.query()
 
 **🔀 Alternative Design (Not Chosen):**
 
-Placing `MediaType` before `Timestamp` (`TYPE#FILE#<MediaType>#<Timestamp>#<FileID>`) would:
+Placing `MediaType` before `Timestamp` (`TYPE#FILE#<MediaType>#<Timestamp>#<ResourceID>`) would:
 
 - ✅ Enable efficient media type filtering with key conditions
 - ❌ **Break pure chronological sorting** across media types
@@ -445,19 +442,19 @@ Folders are **logical prefixes** that represent the structure of the file system
 
 This section provides the query strategy for each use case. The developer's goal is to write application code that maps a user action to one of these efficient DynamoDB queries.
 
-**Important:** ALL folder browsing operations use GSI2 (MergedFolderViewIndex), regardless of whether the user is viewing their own files or shared files. This eliminates conditional logic and provides a consistent, high-performance access pattern.
+**Important:** ALL folder browsing operations use GSI2 (ViewLinkIndex), regardless of whether the user is viewing their own files or shared files. This eliminates conditional logic and provides a consistent, high-performance access pattern.
 
 ### **Use Case 1: Sheldon views the contents of his own folder (media/Project Docs/)**
 
 - **Goal:** List all subfolders and files directly inside `media/Project Docs/` that Sheldon owns, using the same query pattern used for shared folders.
-- **Strategy:** Query GSI2 (MergedFolderViewIndex) using Sheldon's VIEW_LINKs. This returns folder markers (subfolders) followed by file VIEW_LINKs in a single query.
+- **Strategy:** Query GSI2 (ViewLinkIndex) using Sheldon's VIEW_LINKs. This returns folder markers (subfolders) followed by file VIEW_LINKs in a single query.
 - **Query Details:**
 
   ```rust
   // Query GSI2 for "media/Project Docs/" folder visible to Sheldon
   let query_input = QueryInput {
       table_name: "FileMetadata".to_string(),
-      index_name: Some("MergedFolderViewIndex".to_string()),
+      index_name: Some("ViewLinkIndex".to_string()),
       key_condition_expression: Some("GSI2-PK = :pk".to_string()),
       expression_attribute_values: Some(hashmap! {
           ":pk".to_string() => AttributeValue::S("VIEWER#Sheldon#FOLDER#media/Project Docs/".to_string()),
@@ -484,7 +481,7 @@ let mut subfolders = Vec::new();
 let mut files = Vec::new();
 
 for item in result.items {
-    let file_id = item.get("FileID")?.as_s()?;
+    let file_id = item.get("ResourceID")?.as_s()?;
 
     if file_id.starts_with("FOLDER#") {
         // This is a folder marker
@@ -525,14 +522,14 @@ for item in result.items {
 ### **Use Case 2: Justin views his "Shared With Me" list**
 
 - **Goal:** List all folder prefixes that have been explicitly shared with Justin, along with who shared them and what permissions he has.
-- **Strategy:** Query GSI 1 (ShareAccessIndex). This index is specifically designed to collate all of a user's incoming prefix-level grants.
+- **Strategy:** Query GSI 1 (GrantIndex). This index is specifically designed to collate all of a user's incoming prefix-level grants.
 - **Query Details:**
 
   ```rust
   // Query for all grants shared with Justin
   let query_input = QueryInput {
       table_name: "FileMetadata".to_string(),
-      index_name: Some("ShareAccessIndex".to_string()),
+      index_name: Some("GrantIndex".to_string()),
       key_condition_expression: Some("GSI1-PK = :pk".to_string()),
       expression_attribute_values: Some(hashmap! {
           ":pk".to_string() => AttributeValue::S("ACCESS#Justin".to_string()),
@@ -663,7 +660,7 @@ async fn validate_access(user_id: &str, file: &FileMetadata) -> Result<bool> {
 ### **Use Case 4: Justin views the merged contents of folders named "Project Docs/"**
 
 - **Goal:** List all files and subfolders from any folder with the path ending in "Project Docs/" that Justin has access to (e.g., from Sheldon's `media/Project Docs/`, Leigh's `work/Project Docs/`, etc.), merged into a single view, with folders appearing first, then files filtered by media type and sorted by creation date.
-- **Strategy:** Query GSI2 (MergedFolderViewIndex). This is the exact same query as Use Case 1 - there is no difference between viewing own files and viewing a merged folder.
+- **Strategy:** Query GSI2 (ViewLinkIndex). This is the exact same query as Use Case 1 - there is no difference between viewing own files and viewing a merged folder.
 - **Explanation:** The `GSI2-PK` groups all folders and files visible to Justin within any folder named "Project Docs/" into a single item collection. The `GSI2-SK` design ensures folders sort first (`TYPE#FOLDER#`), then files (`TYPE#FILE#`). This works identically whether Justin is viewing only his own "Project Docs/" or a merged view with content from Sheldon and Leigh.
 
 **Example 1: Query all content (folders + files)**
@@ -672,7 +669,7 @@ async fn validate_access(user_id: &str, file: &FileMetadata) -> Result<bool> {
 // Query for ALL content in "Project Docs/" visible to Justin
 let query_input = QueryInput {
     table_name: "FileMetadata".to_string(),
-    index_name: Some("MergedFolderViewIndex".to_string()),
+    index_name: Some("ViewLinkIndex".to_string()),
     key_condition_expression: Some("GSI2-PK = :pk".to_string()),
     expression_attribute_values: Some(hashmap! {
         ":pk".to_string() => AttributeValue::S("VIEWER#Justin#FOLDER#Project Docs/".to_string()),
@@ -699,7 +696,7 @@ let query_input = QueryInput {
 // Query with media type filter using FilterExpression
 let query_input = QueryInput {
     table_name: "FileMetadata".to_string(),
-    index_name: Some("MergedFolderViewIndex".to_string()),
+    index_name: Some("ViewLinkIndex".to_string()),
     key_condition_expression: Some("GSI2-PK = :pk".to_string()),
     filter_expression: Some("begins_with(MediaType, :media_type)".to_string()),
     expression_attribute_values: Some(hashmap! {
@@ -722,7 +719,7 @@ let query_input = QueryInput {
 // Best practice for "show folders + specific file types"
 let query_input = QueryInput {
     table_name: "FileMetadata".to_string(),
-    index_name: Some("MergedFolderViewIndex".to_string()),
+    index_name: Some("ViewLinkIndex".to_string()),
     key_condition_expression: Some("GSI2-PK = :pk".to_string()),
     expression_attribute_values: Some(hashmap! {
         ":pk".to_string() => AttributeValue::S("VIEWER#Justin#FOLDER#Project Docs/".to_string()),
@@ -737,7 +734,7 @@ let mut folders = Vec::new();
 let mut image_files = Vec::new();
 
 for item in result.items {
-    let file_id = item.get("FileID")?.as_s()?;
+    let file_id = item.get("ResourceID")?.as_s()?;
 
     if file_id.starts_with("FOLDER#") {
         folders.push(parse_folder(item)?);
@@ -843,24 +840,48 @@ let put_input = PutItemInput {
 client.put_item(put_input).await?;
 // Result: Single write operation. Justin now has access to all files under the prefix.
 
-// Step 2: Trigger async VIEW_LINK creation for existing files
-let message = CreateViewLinksMessage {
-    action: "CREATE_VIEW_LINKS".to_string(),
-    grant_id: grant_id.clone(),
-    owner_id: "Sheldon".to_string(),
-    recipient_id: "Justin".to_string(),
-    prefix: "media/Project Docs/".to_string(),
-};
+// Step 2: Synchronously create VIEW_LINKs for all existing files (batched)
+let mut files = Vec::new();
+let mut last_key = None;
 
-sqs_client.send_message()
-    .queue_url(&config.view_link_queue_url)
-    .message_body(serde_json::to_string(&message)?)
-    .send()
-    .await?;
-// Worker will process this and create VIEW_LINKs for all existing files in batches
+// Query all files under the prefix
+loop {
+    let result = client.query()
+        .table_name("FileMetadata")
+        .key_condition_expression("PK = :pk AND begins_with(SK, :sk_prefix)")
+        .expression_attribute_values(":pk", AttributeValue::S("USER#Sheldon".to_string()))
+        .expression_attribute_values(":sk_prefix", AttributeValue::S("FILE#media/Project Docs/".to_string()))
+        .set_exclusive_start_key(last_key)
+        .send()
+        .await?;
+    
+    if let Some(items) = result.items {
+        files.extend(items);
+    }
+    
+    if result.last_evaluated_key.is_none() {
+        break;
+    }
+    last_key = result.last_evaluated_key;
+}
+
+// Create VIEW_LINKs in batches of 25 (DynamoDB limit)
+for chunk in files.chunks(25) {
+    let write_requests: Vec<WriteRequest> = chunk.iter()
+        .map(|file| create_view_link_write_request(file, "Justin", &grant_id))
+        .collect();
+    
+    client.batch_write_item()
+        .request_items("FileMetadata", write_requests)
+        .send()
+        .await?;
+}
+
+// Also create folder marker VIEW_LINKs for all ancestor folders
+// (similar batch operation)
 ```
 
-**Note:** This single SHARE_GRANT operation grants access to potentially thousands of files. VIEW_LINKs are created synchronously by the API for existing files (may take 10-30 seconds for large folders). New files uploaded after the grant will automatically get VIEW_LINKs via S3 event processor.
+**Note:** This single SHARE_GRANT operation grants access to potentially thousands of files. VIEW_LINKs are created synchronously by the API for all existing files using efficient batch operations (may take 10-30 seconds for large folders). New files uploaded after the grant will automatically get VIEW_LINKs via S3 event processor.
 
 ### **Use Case 6: Sheldon uploads a new file to a nested folder**
 
@@ -879,7 +900,7 @@ let put_input = PutItemInput {
         "PK".to_string() => AttributeValue::S("USER#Sheldon".to_string()),
         "SK".to_string() => AttributeValue::S("FILE#media/photos/2024/vacation/img.jpg".to_string()),
         "ItemType".to_string() => AttributeValue::S("FILE".to_string()),
-        "FileID".to_string() => AttributeValue::S("R999".to_string()),
+        "ResourceID".to_string() => AttributeValue::S("R999".to_string()),
         "OwnerID".to_string() => AttributeValue::S("Sheldon".to_string()),
         "FileName".to_string() => AttributeValue::S("img.jpg".to_string()),
         "FolderPrefix".to_string() => AttributeValue::S("media/photos/2024/vacation/".to_string()),
@@ -975,7 +996,7 @@ fn create_folder_markers(
                 format!("VIEWLINK#{}#FOLDER#{}", owner_id, full_folder_path)
             ),
             "ItemType".to_string() => AttributeValue::S("VIEW_LINK".to_string()),
-            "FileID".to_string() => AttributeValue::S(format!("FOLDER#{}", full_folder_path)),
+            "ResourceID".to_string() => AttributeValue::S(format!("FOLDER#{}", full_folder_path)),
             "OwnerID".to_string() => AttributeValue::S(owner_id.to_string()),
             "GrantID".to_string() => AttributeValue::S(grant_id.to_string()),
             "CreatedDate".to_string() => AttributeValue::N(
@@ -1009,7 +1030,7 @@ fn create_file_view_link(
         "PK".to_string() => AttributeValue::S(format!("USER#{}", viewer_id)),
         "SK".to_string() => AttributeValue::S(format!("VIEWLINK#{}#{}", file.owner_id, file.file_id)),
         "ItemType".to_string() => AttributeValue::S("VIEW_LINK".to_string()),
-        "FileID".to_string() => AttributeValue::S(file.file_id.clone()),
+        "ResourceID".to_string() => AttributeValue::S(file.file_id.clone()),
         "OwnerID".to_string() => AttributeValue::S(file.owner_id.clone()),
         "GrantID".to_string() => AttributeValue::S(grant_id.to_string()),
         "CreatedDate".to_string() => AttributeValue::N(file.created_date.to_string()),
@@ -1035,7 +1056,7 @@ async fn batch_write_items(items: Vec<HashMap<String, AttributeValue>>) -> Resul
     for chunk in items.chunks(BATCH_SIZE) {
         let write_requests: Vec<_> = chunk.iter()
             .map(|item| {
-                let is_folder = item.get("FileID")
+                let is_folder = item.get("ResourceID")
                     .and_then(|v| v.as_s().ok())
                     .map(|s| s.starts_with("FOLDER#"))
                     .unwrap_or(false);
@@ -1106,7 +1127,7 @@ let put_input = PutItemInput {
         "OwnerID".to_string() => AttributeValue::S("Sheldon".to_string()),
         "RecipientID".to_string() => AttributeValue::S("Justin".to_string()),
         "Permissions".to_string() => AttributeValue::S("READ".to_string()),
-        "FileID".to_string() => AttributeValue::S("R555".to_string()), // Specific file
+        "ResourceID".to_string() => AttributeValue::S("R555".to_string()), // Specific file
         "FilePath".to_string() => AttributeValue::S("media/private/confidential-report.pdf".to_string()),
         "CreatedDate".to_string() => AttributeValue::N(
             SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis().to_string()
@@ -1133,7 +1154,7 @@ async fn create_file_grant_view_link(client: &DynamoDbClient, grant: &ShareGrant
         "PK".to_string() => AttributeValue::S(format!("USER#{}", grant.recipient_id)),
         "SK".to_string() => AttributeValue::S(format!("VIEWLINK#{}#{}", file.owner_id, file.file_id)),
         "ItemType".to_string() => AttributeValue::S("VIEW_LINK".to_string()),
-        "FileID".to_string() => AttributeValue::S(file.file_id.clone()),
+        "ResourceID".to_string() => AttributeValue::S(file.file_id.clone()),
         "OwnerID".to_string() => AttributeValue::S(file.owner_id.clone()),
         "GrantID".to_string() => AttributeValue::S(grant.grant_id.clone()),
         "CreatedDate".to_string() => AttributeValue::N(file.created_date.to_string()),
@@ -1176,7 +1197,7 @@ let file_result = client.query()
 // Query 2: Justin tries to browse the parent folder "media/private/"
 let folder_result = client.query()
     .table_name("FileMetadata")
-    .index_name("MergedFolderViewIndex")
+    .index_name("ViewLinkIndex")
     .key_condition_expression("GSI2-PK = :pk")
     .expression_attribute_values(":pk", AttributeValue::S("VIEWER#Justin#FOLDER#media/private/".to_string()))
     .send()
@@ -1195,7 +1216,7 @@ let folder_result = client.query()
 // Query GSI1 to list all grants for Justin
 let grants_result = client.query()
     .table_name("FileMetadata")
-    .index_name("ShareAccessIndex")
+    .index_name("GrantIndex")
     .key_condition_expression("GSI1-PK = :pk")
     .expression_attribute_values(":pk", AttributeValue::S("ACCESS#Justin".to_string()))
     .send()
@@ -1232,8 +1253,6 @@ let grants_result = client.query()
 ## **4. Implementation Guide**
 
 This section provides detailed implementation guidance for the core infrastructure components needed to support this schema, including S3 event processing and RESTful API endpoints.
-
-### **4.1. S3 Event Processing via SQS**
 
 ### **4.1. S3 Event Processing via SQS**
 
@@ -1361,7 +1380,7 @@ async fn handle_s3_object_created(
         "PK" => AttributeValue::S(format!("USER#{}", owner_id)),
         "SK" => AttributeValue::S(format!("FILE#{}", file_path)),
         "ItemType" => AttributeValue::S("FILE".to_string()),
-        "FileID" => AttributeValue::S(file_id.clone()),
+        "ResourceID" => AttributeValue::S(file_id.clone()),
         "OwnerID" => AttributeValue::S(owner_id.to_string()),
         "FileName" => AttributeValue::S(file_name.to_string()),
         "FolderPrefix" => AttributeValue::S(folder_prefix.clone()),
@@ -1420,7 +1439,7 @@ async fn handle_s3_object_created(
         );
     }
 
-    // Find all FILE grants that match this specific FileID
+    // Find all FILE grants that match this specific ResourceID
     // (This handles the case where a file was deleted and re-uploaded with same path)
     let file_grants = find_file_grants_by_path(client, owner_id, file_path).await?;
 
@@ -1460,7 +1479,7 @@ async fn handle_s3_object_removed(
     let owner_id = parts[0];
     let file_path = parts[1];
 
-    // Get FILE item to retrieve FileID
+    // Get FILE item to retrieve ResourceID
     let file_result = client.get_item()
         .table_name("FileMetadata")
         .key("PK", AttributeValue::S(format!("USER#{}", owner_id)))
@@ -1471,9 +1490,9 @@ async fn handle_s3_object_removed(
     let file_item = file_result.item
         .ok_or_else(|| anyhow!("FILE item not found for deleted S3 object: {}", s3_key))?;
 
-    let file_id = file_item.get("FileID")
+    let file_id = file_item.get("ResourceID")
         .and_then(|v| v.as_s().ok())
-        .ok_or_else(|| anyhow!("FileID not found in FILE item"))?;
+        .ok_or_else(|| anyhow!("ResourceID not found in FILE item"))?;
 
     // Find all grants related to this file
     let folder_prefix = calculate_folder_prefix(file_path);
@@ -1584,7 +1603,7 @@ async fn find_file_grants_by_path(
     Ok(grants)
 }
 
-// Helper function: Find all FILE grants for a specific FileID
+// Helper function: Find all FILE grants for a specific ResourceID
 async fn find_file_grants_by_file_id(
     client: &DynamoDbClient,
     owner_id: &str,
@@ -1597,7 +1616,7 @@ async fn find_file_grants_by_file_id(
         let result = client.query()
             .table_name("FileMetadata")
             .key_condition_expression("PK = :pk AND begins_with(SK, :sk_prefix)")
-            .filter_expression("FileID = :file_id")
+            .filter_expression("ResourceID = :file_id")
             .expression_attribute_values(":pk", AttributeValue::S(format!("USER#{}", owner_id)))
             .expression_attribute_values(":sk_prefix", AttributeValue::S("GRANT#".to_string()))
             .expression_attribute_values(":file_id", AttributeValue::S(file_id.to_string()))
@@ -1767,7 +1786,7 @@ async fn create_folder_marker_if_not_exists(
         "PK" => AttributeValue::S(format!("USER#{}", viewer_id)),
         "SK" => AttributeValue::S(format!("VIEWLINK#{}#FOLDER#{}", owner_id, folder_path)),
         "ItemType" => AttributeValue::S("VIEW_LINK".to_string()),
-        "FileID" => AttributeValue::S(format!("FOLDER#{}", folder_path)),
+        "ResourceID" => AttributeValue::S(format!("FOLDER#{}", folder_path)),
         "OwnerID" => AttributeValue::S(owner_id.to_string()),
         "GrantID" => AttributeValue::S(grant_id.to_string()),
         "FileName" => AttributeValue::S(folder_name.to_string()),
@@ -1862,7 +1881,7 @@ fn create_file_view_link(
         "PK" => AttributeValue::S(format!("USER#{}", recipient_id)),
         "SK" => AttributeValue::S(format!("VIEWLINK#{}#{}", owner_id, file_id)),
         "ItemType" => AttributeValue::S("VIEW_LINK".to_string()),
-        "FileID" => AttributeValue::S(file_id.to_string()),
+        "ResourceID" => AttributeValue::S(file_id.to_string()),
         "OwnerID" => AttributeValue::S(owner_id.to_string()),
         "GrantID" => AttributeValue::S(grant_id.to_string()),
         "CreatedDate" => AttributeValue::N(created_date.to_string()),
@@ -1962,7 +1981,7 @@ fn parse_grant(item: &HashMap<String, AttributeValue>) -> Result<ShareGrant> {
         recipient_id: item.get("RecipientID")?.as_s()?.clone(),
         grant_type: item.get("GrantType")?.as_s()?.clone(),
         prefix: item.get("Prefix").and_then(|v| v.as_s().ok()).unwrap_or("").to_string(),
-        file_id: item.get("FileID").and_then(|v| v.as_s().ok()).map(|s| s.to_string()),
+        file_id: item.get("ResourceID").and_then(|v| v.as_s().ok()).map(|s| s.to_string()),
         file_path: item.get("FilePath").and_then(|v| v.as_s().ok()).map(|s| s.to_string()),
     })
 }
@@ -2133,16 +2152,11 @@ Response 403 Forbidden:
 
 #### **4.2.3. Create Folder Marker**
 
-**Purpose:** Explicitly create an empty folder (S3 event processor creates them automatically when files are uploaded).
+**Purpose:** Explicitly create an empty folder (S3 event processor creates them automatically when files are uploaded). Uses PUT for idempotent folder creation.
 
 ```http
-POST /storage/{owner-id}/{folder-path}/
+PUT /storage/{owner-id}/{folder-path}/
 Authorization: Bearer <jwt-token>
-
-Request Body:
-{
-  "folder_name": "2024/"
-}
 
 Response 201 Created:
 {
@@ -2150,18 +2164,20 @@ Response 201 Created:
   "created": true
 }
 
-Response 409 Conflict:
+Response 200 OK:
 {
-  "error": "FOLDER_EXISTS",
-  "message": "Folder marker already exists"
+  "folder_path": "media/photos/2024/",
+  "created": false,
+  "message": "Folder already exists"
 }
 ```
 
 **Implementation:**
 
 1. Extract `user_id` from JWT, verify `user_id == owner-id`
-2. Create VIEW_LINK folder marker with `condition_expression: attribute_not_exists(PK)` for idempotency
-3. Return 201 or 409
+2. Derive folder name from `{folder-path}` URL parameter (no request body needed)
+3. Create VIEW_LINK folder marker with `condition_expression: attribute_not_exists(PK)` for idempotency
+4. Return 201 if created, 200 if already exists (PUT is idempotent)
 
 #### **4.2.4. Create Share Grant (PREFIX or FILE)**
 
@@ -2173,18 +2189,18 @@ Authorization: Bearer <jwt-token>
 
 Request Body (PREFIX Grant):
 {
-  "recipient_email": "justin@example.com",
+  "recipient_id": "Justin",
   "grant_type": "PREFIX",
   "prefix": "media/photos/",
-  "permissions": "READ_ONLY"
+  "permissions": "READ"
 }
 
 Request Body (FILE Grant):
 {
-  "recipient_email": "justin@example.com",
+  "recipient_id": "Justin",
   "grant_type": "FILE",
   "file_path": "media/private/confidential.pdf",
-  "permissions": "READ_ONLY"
+  "permissions": "READ"
 }
 
 Response 201 Created:
@@ -2194,7 +2210,7 @@ Response 201 Created:
   "recipient_id": "Justin",
   "grant_type": "PREFIX",
   "prefix": "media/photos/",
-  "permissions": "READ_ONLY",
+  "permissions": "READ",
   "created_date": 1700000000,
   "view_links_created": 1543
 }
@@ -2209,13 +2225,13 @@ Response 400 Bad Request:
 **Implementation:**
 
 1. Extract `user_id` from JWT (owner)
-2. Lookup recipient_id from recipient_email
+2. Validate `recipient_id` exists (query user service/table)
 3. Create SHARE_GRANT item
-4. **For PREFIX grants:** Query all files under prefix, create VIEW_LINKs + folder markers synchronously
+4. **For PREFIX grants:** Query all files under prefix, create VIEW_LINKs + folder markers synchronously (batched)
 5. **For FILE grants:** Get FILE item, create single VIEW_LINK synchronously
 6. Return grant details with VIEW_LINK count
 
-**Performance Note:** For large PREFIX grants (>1000 files), this may take 10-30 seconds. Show progress indicator in UI. Future optimization could make this async with job tracking.
+**Performance Note:** For large PREFIX grants (>1000 files), this may take 10-30 seconds. All operations complete synchronously before returning. Show progress indicator in UI.
 
 #### **4.2.5. List Grants (Owned or Received)**
 
@@ -2236,10 +2252,9 @@ Response 200 OK (filter=owned):
     {
       "grant_id": "G789",
       "recipient_id": "Justin",
-      "recipient_email": "justin@example.com",
       "grant_type": "PREFIX",
       "prefix": "media/photos/",
-      "permissions": "READ_ONLY",
+      "permissions": "READ",
       "created_date": 1700000000
     }
   ],
@@ -2269,7 +2284,7 @@ Response 200 OK:
   "recipient_id": "Justin",
   "grant_type": "PREFIX",
   "prefix": "media/photos/",
-  "permissions": "READ_ONLY",
+  "permissions": "READ",
   "created_date": 1700000000,
   "file_count": 1543
 }
@@ -2446,7 +2461,7 @@ async fn check_folder_has_contents(
     // Query GSI2 for owner to see if folder has any children
     let result = client.query()
         .table_name("FileMetadata")
-        .index_name("MergedFolderViewIndex")
+        .index_name("ViewLinkIndex")
         .key_condition_expression("GSI2PK = :pk")
         .expression_attribute_values(
             ":pk",
@@ -2553,11 +2568,18 @@ async fn query_prefix_grants_for_exact_folder(
 
 **Future Enhancements (Post-MVP):**
 
-- Async grant creation/revocation with job tracking
-- Batch operations
+- Async grant creation/revocation with job tracking for large grants (>1000 files)
+- Batch operations for multiple grants
 - Grant expiration and time-limited sharing
-- Fine-grained permissions (READ_ONLY, READ_WRITE, FULL_CONTROL)
 - Folder rename/move operations
+
+**Permissions Model:**
+
+For MVP, two permission levels are sufficient:
+- `READ` - View and download files
+- `READ_WRITE` - View, download, upload, and delete files
+
+These cover all essential use cases without unnecessary complexity. More granular permissions can be added post-MVP if needed.
 
 ### **4.4. Folder Browsing Implementation**
 
@@ -2605,7 +2627,7 @@ async fn get_folder_contents(
     // Build GSI2 query - returns folders first, then files sorted by timestamp
     let mut query = client.query()
         .table_name("FileMetadata")
-        .index_name("MergedFolderViewIndex")
+        .index_name("ViewLinkIndex")
         .key_condition_expression("GSI2-PK = :pk")
         .expression_attribute_values(
             ":pk",
@@ -2640,7 +2662,7 @@ async fn get_folder_contents(
     let mut files = Vec::new();
 
     for item in items {
-        let file_id = item.get("FileID")?.as_s()?;
+        let file_id = item.get("ResourceID")?.as_s()?;
 
         if file_id.starts_with("FOLDER#") {
             // This is a folder marker
@@ -2920,22 +2942,22 @@ async fn delete_view_link(client: &DynamoDbClient, pk: &str, sk: &str) -> Result
 
 **Design Trade-off Rationale:**
 
-The timestamp-first sort key (`TYPE#FILE#<Timestamp>#<MediaType>#<FileID>`) was chosen to optimize for the primary use case of browsing merged folders chronologically (e.g., "show me the 50 newest files from all contributors"). This design enables perfect cross-owner sorting with native pagination at the cost of less efficient media type filtering. For workloads where filtering by media type is the primary pattern, consider the alternative design (`TYPE#FILE#<MediaType>#<Timestamp>#<FileID>`).
+The timestamp-first sort key (`TYPE#FILE#<Timestamp>#<MediaType>#<ResourceID>`) was chosen to optimize for the primary use case of browsing merged folders chronologically (e.g., "show me the 50 newest files from all contributors"). This design enables perfect cross-owner sorting with native pagination at the cost of less efficient media type filtering. For workloads where filtering by media type is the primary pattern, consider the alternative design (`TYPE#FILE#<MediaType>#<Timestamp>#<ResourceID>`).
 
 ### **5.2. Write Performance**
 
 | Operation        | Strategy           | Latency | WCU Cost | Notes                                                          |
 | ---------------- | ------------------ | ------- | -------- | -------------------------------------------------------------- |
-| **Upload file**  | Put FILE item      | 5-10ms  | 1 WCU    | + async VIEW_LINK creation via Stream (owner + all recipients) |
-| **Create grant** | Put SHARE_GRANT    | 5-10ms  | 1 WCU    | + async VIEW_LINK creation for existing files via SQS          |
-| **Revoke grant** | Delete SHARE_GRANT | 5-10ms  | 1 WCU    | + async VIEW_LINK cleanup via SQS                              |
-| **Delete file**  | Delete FILE item   | 5-10ms  | 1 WCU    | + async VIEW_LINK cleanup via Stream                           |
+| **Upload file**  | Put FILE item      | 5-10ms  | 1 WCU    | + VIEW_LINK creation via S3 event processor (owner + all recipients) |
+| **Create grant** | Put SHARE_GRANT    | 10-30s  | Variable WCU | Synchronous VIEW_LINK creation for all existing files (batched) |
+| **Revoke grant** | Delete SHARE_GRANT | 10-30s  | Variable WCU | Synchronous VIEW_LINK deletion (batched)                      |
+| **Delete file**  | Delete FILE item   | 5-10ms  | 1 WCU    | + VIEW_LINK cleanup via S3 event processor                     |
 
 **Write Amplification:**
 
 - **With VIEW_LINKs (this design):**
-  - File upload: 1 FILE write + (1 + N) VIEW_LINK writes (owner + N recipients, async via Stream)
-  - Grant creation: 1 GRANT write + M VIEW_LINK writes (M existing files, async via SQS)
+  - File upload: 1 FILE write + (1 + N) VIEW_LINK writes (owner + N recipients, via S3→SQS→Lambda)
+  - Grant creation: 1 GRANT write + M VIEW_LINK writes (M existing files, synchronous batched)
 - **Without VIEW_LINKs:**
   - File upload: 1 FILE write only
   - Grant creation: 1 GRANT write only
@@ -2948,6 +2970,8 @@ The timestamp-first sort key (`TYPE#FILE#<Timestamp>#<MediaType>#<FileID>`) was 
 - ✅ Reduced application complexity (one code path vs. conditional logic)
 - ✅ Native pagination (DynamoDB cursors vs. custom merge cursors)
 - ✅ Lower operational costs for read-heavy workloads (typical for file sharing)
+
+**Synchronous Operations Note:** For MVP, all API operations (grant creation/revocation) complete synchronously. This simplifies the architecture and eliminates the need for job tracking queues. For large grants (>1000 files), operations may take 10-30 seconds - UI should show progress indicators. Post-MVP, async operations with SQS can be added for better UX on large operations.
 
 ### **5.3. Cost Analysis**
 
@@ -3039,5 +3063,5 @@ The unified approach where owners also browse via VIEW_LINKs provides:
 ## **6. Supporting Artifacts**
 
 - **Full Data Model:** See `Complete Data Model Example.md` for the complete dataset with examples of all item types, including owner VIEW_LINKs with `GrantID: "OWNER"`.
-- **Infrastructure:** See `DynamoDB Terraform Configuration.md` for the complete Terraform configuration including table, GSIs, streams, and supporting infrastructure.
-- **Schema Summary:** Single-table design with S3-style prefix-based folders, prefix-level grants, and universal VIEW_LINK denormalization for all folder browsing operations. All users (owners and recipients) access folders through GSI2 (MergedFolderViewIndex), ensuring a unified, high-performance access pattern with no conditional logic.
+- **Infrastructure:** See `DynamoDB Terraform Configuration.md` for the complete Terraform configuration including table, GSIs, S3 event processing (SQS), and supporting infrastructure.
+- **Schema Summary:** Single-table design with S3-style prefix-based folders, prefix-level grants, and universal VIEW_LINK denormalization for all folder browsing operations. All users (owners and recipients) access folders through GSI2 (ViewLinkIndex), ensuring a unified, high-performance access pattern with no conditional logic.

@@ -29,7 +29,7 @@ attribute { name = "GSI2-SK" type = "S" }
 
 # - PREFIX grants: Access to folder prefix and all files within it (GSI1-SK = "GRANT#<OwnerID>#<Prefix>")
 
-# - FILE grants: Access to single file without folder access (GSI1-SK = "GRANT#<OwnerID>#FILE#<FileID>")
+# - FILE grants: Access to single file without folder access (GSI1-SK = "GRANT#<OwnerID>#FILE#<ResourceID>")
 
 global_secondary_index {
 name = "ShareAccessIndex"
@@ -42,7 +42,7 @@ non_key_attributes = [
 "OwnerID", # Who shared the folder/file
 "Permissions", # READ or READ/WRITE
 "Prefix", # The folder path that was shared (PREFIX grants only)
-"FileID", # The specific file shared (FILE grants only)
+"ResourceID", # The specific file shared (FILE grants only)
 "FilePath", # Human-readable path for FILE grants (for UI display)
 "CreatedDate" # When the share was created
 ]
@@ -78,7 +78,7 @@ hash_key = "GSI2-PK"
 range_key = "GSI2-SK"
 projection_type = "INCLUDE" # Project attributes needed to render folder and file items
 non_key_attributes = [
-"FileID", # File UUID or "FOLDER#<path>" for folder markers
+"ResourceID", # File UUID or "FOLDER#<path>" for folder markers
 "OwnerID", # Who owns the file or folder marker
 "GrantID", # Which grant authorized this view (for validation)
 "CreatedDate", # File/folder creation timestamp
