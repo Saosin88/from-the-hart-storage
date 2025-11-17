@@ -247,7 +247,7 @@ Action = [
 "sqs:DeleteMessage",
 "sqs:GetQueueAttributes"
 ]
-Resource = aws_sqs_queue.s3_events.arn
+Resource = aws*sqs_queue.s3_events.arn
 },
 {
 Effect = "Allow"
@@ -268,7 +268,7 @@ Resource = "${aws_s3_bucket.file_storage.arn}/*"
         ]
         Resource = [
           aws_dynamodb_table.file_metadata.arn,
-          "${aws_dynamodb_table.file_metadata.arn}/index/_"
+          "${aws_dynamodb_table.file_metadata.arn}/index/*"
 ]
 },
 {
@@ -278,7 +278,7 @@ Action = [
 "logs:CreateLogStream",
 "logs:PutLogEvents"
 ]
-Resource = "arn:aws:logs:_:_:_"
+Resource = "arn:aws:logs:_:_:\_"
 }
 ]
 })
@@ -289,6 +289,242 @@ Resource = "arn:aws:logs:_:_:_"
 resource "aws_cloudwatch_log_group" "s3_processor_logs" {
 name = "/aws/lambda/${aws_lambda_function.s3_event_processor.function_name}"
 retention_in_days = 14
+}
+
+# CloudFront Distribution with Origin Access Control (OAC)
+
+# CloudFront Public Key (for signed URL verification)
+
+resource "aws_cloudfront_public_key" "storage" {
+comment = "Public key for storage service signed URLs"
+encoded_key = file("${path.module}/cloudfront_public_key.pem")
+name = "storage-public-key"
+}
+
+# CloudFront Key Group (associates public key with distribution)
+
+resource "aws_cloudfront_key_group" "storage" {
+comment = "Key group for storage service signed URLs"
+items = [aws_cloudfront_public_key.storage.id]
+name = "storage-key-group"
+}
+
+# Origin Access Control (OAC) for S3
+
+resource "aws_cloudfront_origin_access_control" "storage" {
+name = "storage-oac"
+description = "OAC for private S3 bucket access"
+origin_access_control_origin_type = "s3"
+signing_behavior = "always"
+signing_protocol = "sigv4"
+}
+
+# CloudFront Distribution
+
+resource "aws_cloudfront_distribution" "storage" {
+enabled = true
+is_ipv6_enabled = true
+comment = "File storage service distribution"
+default_root_object = ""
+aliases = ["dev-storage.fromthehart.tech"] # Or "storage.fromthehart.tech" in prod
+
+# Origin: S3 Bucket
+
+origin {
+domain_name = aws_s3_bucket.file_storage.bucket_regional_domain_name
+origin_id = "S3-${aws_s3_bucket.file_storage.id}"
+origin_access_control_id = aws_cloudfront_origin_access_control.storage.id
+}
+
+# Default Cache Behavior (requires signed URLs)
+
+default_cache_behavior {
+allowed_methods = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+cached_methods = ["GET", "HEAD"]
+target_origin_id = "S3-${aws_s3_bucket.file_storage.id}"
+viewer_protocol_policy = "redirect-to-https"
+compress = true
+
+# Trusted Key Groups for signature verification
+
+trusted_key_groups = [aws_cloudfront_key_group.storage.id]
+
+# Disable caching (files are private, cache would bypass permission checks)
+
+cache_policy_id = data.aws_cloudfront_cache_policy.caching_disabled.id
+origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer.id
+}
+
+# Public Cache Behavior (no signed URLs required) - for future use
+
+ordered_cache_behavior {
+path_pattern = "/public/\*"
+allowed_methods = ["GET", "HEAD", "OPTIONS"]
+cached_methods = ["GET", "HEAD"]
+target_origin_id = "S3-${aws_s3_bucket.file_storage.id}"
+viewer_protocol_policy = "redirect-to-https"
+compress = true
+
+# No trusted key groups = no signature required
+
+cache_policy_id = data.aws_cloudfront_cache_policy.caching_optimized.id
+}
+
+# SSL/TLS Certificate
+
+viewer_certificate {
+acm_certificate_arn = var.acm_certificate_arn
+ssl_support_method = "sni-only"
+minimum_protocol_version = "TLSv1.2_2021"
+}
+
+# Geo Restrictions (optional)
+
+restrictions {
+geo_restriction {
+restriction_type = "none"
+}
+}
+
+# Logging Configuration (optional)
+
+logging_config {
+include_cookies = false
+bucket = aws_s3_bucket.cloudfront_logs.bucket_domain_name
+prefix = "storage/"
+}
+
+tags = {
+Name = "StorageDistribution"
+Environment = var.environment
+Service = "FileSharing"
+}
+}
+
+# Data Sources for CloudFront Policies
+
+data "aws_cloudfront_cache_policy" "caching_disabled" {
+name = "Managed-CachingDisabled"
+}
+
+data "aws_cloudfront_cache_policy" "caching_optimized" {
+name = "Managed-CachingOptimized"
+}
+
+data "aws_cloudfront_origin_request_policy" "all_viewer" {
+name = "Managed-AllViewer"
+}
+
+# S3 Bucket Policy for OAC Access
+
+resource "aws_s3_bucket_policy" "cloudfront_oac" {
+bucket = aws_s3_bucket.file_storage.id
+
+policy = jsonencode({
+Version = "2012-10-17"
+Statement = [
+{
+Sid = "AllowCloudFrontServicePrincipal"
+Effect = "Allow"
+Principal = {
+Service = "cloudfront.amazonaws.com"
+}
+Action = [
+"s3:GetObject",
+"s3:PutObject",
+"s3:DeleteObject"
+]
+Resource = "${aws_s3_bucket.file_storage.arn}/\*"
+Condition = {
+StringEquals = {
+"AWS:SourceArn" = aws_cloudfront_distribution.storage.arn
+}
+}
+}
+]
+})
+}
+
+# SSM Parameter for CloudFront Private Key
+
+resource "aws_ssm_parameter" "cloudfront_private_key" {
+name = "/cloudfront/storage/private-key"
+description = "CloudFront private key for signed URL generation"
+type = "SecureString"
+value = file("${path.module}/cloudfront_private_key.pem")
+
+# KMS key for encryption (optional, uses default AWS managed key if omitted)
+
+key_id = var.kms_key_id
+
+tags = {
+Name = "CloudFrontPrivateKey"
+Environment = var.environment
+Service = "FileSharing"
+}
+
+lifecycle {
+ignore_changes = [value] # Prevent accidental overwrites
+}
+}
+
+# IAM Policy for API Lambda to Access SSM Parameter
+
+resource "aws_iam_policy" "api_lambda_ssm_access" {
+name = "api-lambda-ssm-cloudfront-key-access"
+description = "Allow API Lambda to read CloudFront private key from SSM"
+
+policy = jsonencode({
+Version = "2012-10-17"
+Statement = [
+{
+Effect = "Allow"
+Action = [
+"ssm:GetParameter"
+]
+Resource = aws_ssm_parameter.cloudfront_private_key.arn
+},
+{
+Effect = "Allow"
+Action = [
+"kms:Decrypt"
+]
+Resource = var.kms_key_id # KMS key used to encrypt SSM parameter
+}
+]
+})
+}
+
+# Attach SSM Policy to API Lambda Role
+
+resource "aws_iam_role_policy_attachment" "api_lambda_ssm" {
+role = aws_iam_role.api_lambda.name
+policy_arn = aws_iam_policy.api_lambda_ssm_access.arn
+}
+
+# CloudFront Logs S3 Bucket (optional)
+
+resource "aws_s3_bucket" "cloudfront_logs" {
+bucket = "storage-cloudfront-logs-${var.environment}"
+
+tags = {
+Name = "CloudFrontLogs"
+Environment = var.environment
+Service = "FileSharing"
+}
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "cloudfront_logs" {
+bucket = aws_s3_bucket.cloudfront_logs.id
+
+rule {
+id = "expire-old-logs"
+status = "Enabled"
+
+expiration {
+days = 90 # Retain logs for 90 days
+}
+}
 }
 
 # Outputs for reference
@@ -311,4 +547,29 @@ value = aws_sqs_queue.s3_events.url
 output "s3_events_queue_arn" {
 description = "SQS S3 events queue ARN"
 value = aws_sqs_queue.s3_events.arn
+}
+
+output "cloudfront_distribution_id" {
+description = "CloudFront distribution ID"
+value = aws_cloudfront_distribution.storage.id
+}
+
+output "cloudfront_distribution_domain" {
+description = "CloudFront distribution domain name"
+value = aws_cloudfront_distribution.storage.domain_name
+}
+
+output "cloudfront_distribution_arn" {
+description = "CloudFront distribution ARN"
+value = aws_cloudfront_distribution.storage.arn
+}
+
+output "cloudfront_public_key_id" {
+description = "CloudFront public key ID (use in Key-Pair-Id query parameter)"
+value = aws_cloudfront_public_key.storage.id
+}
+
+output "ssm_private_key_parameter_name" {
+description = "SSM parameter name for CloudFront private key"
+value = aws_ssm_parameter.cloudfront_private_key.name
 }

@@ -41,7 +41,8 @@ resource "aws_s3_bucket_notification" "to_sqs" {
     events = ["s3:ObjectCreated:Put",
       "s3:ObjectCreated:Post",
       "s3:ObjectCreated:Copy",
-    "s3:ObjectCreated:CompleteMultipartUpload"]
+      "s3:ObjectCreated:CompleteMultipartUpload",
+    "s3:ObjectRemoved:*"]
   }
 
   depends_on = [aws_sqs_queue_policy.allow_s3]

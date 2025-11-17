@@ -42,18 +42,18 @@ All file metadata, sharing permissions, and denormalized links for different vie
 
 ### **1.2. Schema Keys**
 
-| Key Type               | Attribute Name | Data Type  | Purpose                                                                                   |
-| :--------------------- | :------------- | :--------- | :---------------------------------------------------------------------------------------- |
-| **Partition Key (PK)** | `PK`           | String (S) | **`USER#<UserID>`** (Primary data locality)                                               |
+| Key Type               | Attribute Name | Data Type  | Purpose                                                                                                                                                                                                        |
+| :--------------------- | :------------- | :--------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Partition Key (PK)** | `PK`           | String (S) | **`USER#<UserID>`** (Primary data locality)                                                                                                                                                                    |
 | **Sort Key (SK)**      | `SK`           | String (S) | **FILE items:** `FILE#<Path>`<br>**SHARE_GRANT items:** `GRANT#<RecipientID>#<GrantID>`<br>**VIEW_LINK items:** `VIEWLINK#<OwnerID>#<ResourceID>` (file) or `VIEWLINK#<OwnerID>#FOLDER#<Path>` (folder marker) |
 
 ### **1.3. Global Secondary Indexes (GSIs)**
 
 GSIs are the key to enabling the complex, high-performance query patterns required by the application without resorting to inefficient table scans.
 
-| Index Name                       | Partition Key                                            | Sort Key                                    | Access Pattern                                                                                                                                                                                                                                                                                                                                                             |
-| :------------------------------- | :------------------------------------------------------- | :------------------------------------------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **GSI 1: GrantIndex**      | `GSI1-PK` (`ACCESS#<RecipientID>`)                       | `GSI1-SK` - **PREFIX grants:** `GRANT#<OwnerID>#<Prefix>`<br>**FILE grants:** `GRANT#<OwnerID>#FILE#<ResourceID>`      | Lists all prefix-level grants **shared with a user** ("Shared With Me" view). Each item represents access to a folder prefix and all files within it, or access to a single specific file.                                                                                                                                                                                                                      |
+| Index Name               | Partition Key                                            | Sort Key                                                                                                                                 | Access Pattern                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| :----------------------- | :------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **GSI 1: GrantIndex**    | `GSI1-PK` (`ACCESS#<RecipientID>`)                       | `GSI1-SK` - **PREFIX grants:** `GRANT#<OwnerID>#<Prefix>`<br>**FILE grants:** `GRANT#<OwnerID>#FILE#<ResourceID>`                        | Lists all prefix-level grants **shared with a user** ("Shared With Me" view). Each item represents access to a folder prefix and all files within it, or access to a single specific file.                                                                                                                                                                                                                                                                                    |
 | **GSI 2: ViewLinkIndex** | `GSI2-PK` (`VIEWER#<RecipientID>#FOLDER#<FolderPrefix>`) | `GSI2-SK` - **Folder markers:** `TYPE#FOLDER#<FolderName>#<OwnerID>`<br>**File items:** `TYPE#FILE#<Timestamp>#<MediaType>#<ResourceID>` | **Primary access pattern for ALL folder browsing.** Gets a merged, sorted list of a folder's subfolders and files for a specific user. The sort key design (`TYPE#FOLDER#` vs `TYPE#FILE#`) ensures folders appear first, mimicking S3's bucket browsing behavior. Timestamp-first file sorting enables pure chronological sorting across all media types and owners. This unified pattern works identically whether the user is viewing their own folder or a shared folder. |
 
 ## **2. Detailed Data Modeling and Item Structures**
@@ -77,7 +77,13 @@ This is the canonical record for a file, stored on the **Owner's** partition. It
 - Direct file access (download, get S3 key for signed URL)
 - Admin operations (bulk exports, data migrations)
 
-**Critical Architectural Note:** All file create/update/delete operations happen directly in S3 through **CloudFront OAC (Origin Access Control) with signed URLs**. Users never interact with S3 directly. S3 events (ObjectCreated/ObjectRemoved) trigger SQS messages that Lambda processors use to create/update/delete FILE items in DynamoDB. The API never directly creates or modifies FILE items.
+**Critical Architectural Note:** All file create/update/delete operations happen directly in S3 through **CloudFront OAC (Origin Access Control) with signed URLs** (see [Section 5](#5-cloudfront--s3-signed-url-architecture)). Users never interact with S3 directly:
+
+1. **Upload Flow:** User requests signed URL from API → uploads via CloudFront → CloudFront proxies to S3 → S3 sends ObjectCreated event → Lambda creates FILE item
+2. **Download Flow:** API generates signed URL → user downloads via CloudFront → CloudFront proxies S3 GET request with OAC
+3. **Delete Flow:** API performs DELETE via CloudFront signed URL → S3 sends ObjectRemoved event → Lambda deletes FILE item
+
+S3 events (ObjectCreated/ObjectRemoved) trigger SQS messages that Lambda processors use to create/update/delete FILE items in DynamoDB. The API never directly creates or modifies FILE items - all FILE item mutations originate from S3 events triggered by CloudFront-proxied operations.
 
 **Not Used For:** Folder browsing or listing files. All folder views use VIEW_LINK items via GSI2.
 
@@ -86,7 +92,7 @@ This is the canonical record for a file, stored on the **Owner's** partition. It
 | **PK**          | `USER#<UserID>`       | `USER#Sheldon`                            |
 | **SK**          | `FILE#<FilePath>`     | `FILE#media/Project Docs/DSCN0010.jpg`    |
 | `ItemType`      | `FILE`                | `FILE`                                    |
-| `ResourceID`        | `<UUID>`              | `R102`                                    |
+| `ResourceID`    | `<UUID>`              | `R102`                                    |
 | `OwnerID`       | `<UserID>`            | `Sheldon`                                 |
 | `FileName`      | `<string>`            | `DSCN0010.jpg`                            |
 | `FolderPrefix`  | `<string>`            | `media/Project Docs/`                     |
@@ -107,6 +113,7 @@ This is the canonical record for a file, stored on the **Owner's** partition. It
 Tracks permissions granted by an owner to a recipient for either a **folder prefix** or an **individual file**. SHARE_GRANT items support two grant types to handle different sharing scenarios while maintaining a unified table structure. All grants are stored on the **Owner's** partition and projected onto GSI 1 to power the "Shared With Me" view.
 
 **CRITICAL: SHARE_GRANT items are ONLY created and deleted via API operations. S3 event processing NEVER touches SHARE_GRANT items.** This separation of concerns ensures:
+
 - S3 events manage file lifecycle (FILE items, VIEW_LINKs)
 - API operations manage sharing lifecycle (SHARE_GRANT items, VIEW_LINKs for recipients)
 - Folder structure (folder marker VIEW_LINKs) persists independent of file contents
@@ -142,20 +149,20 @@ A PREFIX grant provides access to ALL files matching a specific folder prefix, i
 
 A FILE grant provides access to a single specific file without granting access to the parent folder or sibling files. This enables sharing individual files from private folders while maintaining folder privacy.
 
-| Attribute     | Value Format                    | Example (Sheldon → Justin)        |
-| :------------ | :------------------------------ | :-------------------------------- |
-| **PK**        | `USER#<OwnerID>`                | `USER#Sheldon`                    |
-| **SK**        | `GRANT#<RecipientID>#<GrantID>` | `GRANT#Justin#G-x7y8z9w0`         |
-| `ItemType`    | `SHARE_GRANT`                   | `SHARE_GRANT`                     |
-| `GrantType`   | `FILE`                          | `FILE`                            |
-| `GrantID`     | `<UUID>`                        | `G-x7y8z9w0`                      |
-| `OwnerID`     | `<UserID>`                      | `Sheldon`                         |
-| `RecipientID` | `<UserID>`                      | `Justin`                          |
-| `Permissions` | `READ`, `READ/WRITE`            | `READ`                            |
-| `ResourceID`      | `<UUID>`                        | `R102`                            |
-| `FilePath`    | `<FullPath>`                    | `media/Project Docs/DSCN0010.jpg` |
-| `CreatedDate` | `<Timestamp>`                   | `1234567890000`                   |
-| **`GSI1-PK`** | `ACCESS#<RecipientID>`          | `ACCESS#Justin`                   |
+| Attribute     | Value Format                        | Example (Sheldon → Justin)        |
+| :------------ | :---------------------------------- | :-------------------------------- |
+| **PK**        | `USER#<OwnerID>`                    | `USER#Sheldon`                    |
+| **SK**        | `GRANT#<RecipientID>#<GrantID>`     | `GRANT#Justin#G-x7y8z9w0`         |
+| `ItemType`    | `SHARE_GRANT`                       | `SHARE_GRANT`                     |
+| `GrantType`   | `FILE`                              | `FILE`                            |
+| `GrantID`     | `<UUID>`                            | `G-x7y8z9w0`                      |
+| `OwnerID`     | `<UserID>`                          | `Sheldon`                         |
+| `RecipientID` | `<UserID>`                          | `Justin`                          |
+| `Permissions` | `READ`, `READ/WRITE`                | `READ`                            |
+| `ResourceID`  | `<UUID>`                            | `R102`                            |
+| `FilePath`    | `<FullPath>`                        | `media/Project Docs/DSCN0010.jpg` |
+| `CreatedDate` | `<Timestamp>`                       | `1234567890000`                   |
+| **`GSI1-PK`** | `ACCESS#<RecipientID>`              | `ACCESS#Justin`                   |
 | **`GSI1-SK`** | `GRANT#<OwnerID>#FILE#<ResourceID>` | `GRANT#Sheldon#FILE#R102`         |
 
 **Key Design Notes:**
@@ -211,19 +218,19 @@ This means owners always browse their files through VIEW_LINKs, just like recipi
 
 #### **2.4.1. File VIEW_LINK (Regular Files)**
 
-| Attribute      | Value Format                                 | Example (Justin viewing Sheldon's R102)    |
-| :------------- | :------------------------------------------- | :----------------------------------------- |
-| **PK**         | `USER#<ViewerID>`                            | `USER#Justin`                              |
+| Attribute      | Value Format                                     | Example (Justin viewing Sheldon's R102)    |
+| :------------- | :----------------------------------------------- | :----------------------------------------- |
+| **PK**         | `USER#<ViewerID>`                                | `USER#Justin`                              |
 | **SK**         | `VIEWLINK#<OwnerID>#<ResourceID>`                | `VIEWLINK#Sheldon#R102`                    |
-| `ItemType`     | `VIEW_LINK`                                  | `VIEW_LINK`                                |
-| `ResourceID`       | `<UUID>`                                     | `R102`                                     |
-| `OwnerID`      | `<UserID>`                                   | `Sheldon`                                  |
-| `GrantID`      | `<UUID>` or `"OWNER"`                        | `G-a1b2c3d4`                               |
-| `CreatedDate`  | `<Timestamp>`                                | `1224685719000`                            |
-| `FolderPrefix` | `<Path>`                                     | `media/Project Docs/`                      |
-| `FileName`     | `<string>`                                   | `DSCN0010.jpg`                             |
-| `MediaType`    | `<MIME Type>`                                | `image/jpeg`                               |
-| **`GSI2-PK`**  | `VIEWER#<ViewerID>#FOLDER#<FolderPrefix>`    | `VIEWER#Justin#FOLDER#media/Project Docs/` |
+| `ItemType`     | `VIEW_LINK`                                      | `VIEW_LINK`                                |
+| `ResourceID`   | `<UUID>`                                         | `R102`                                     |
+| `OwnerID`      | `<UserID>`                                       | `Sheldon`                                  |
+| `GrantID`      | `<UUID>` or `"OWNER"`                            | `G-a1b2c3d4`                               |
+| `CreatedDate`  | `<Timestamp>`                                    | `1224685719000`                            |
+| `FolderPrefix` | `<Path>`                                         | `media/Project Docs/`                      |
+| `FileName`     | `<string>`                                       | `DSCN0010.jpg`                             |
+| `MediaType`    | `<MIME Type>`                                    | `image/jpeg`                               |
+| **`GSI2-PK`**  | `VIEWER#<ViewerID>#FOLDER#<FolderPrefix>`        | `VIEWER#Justin#FOLDER#media/Project Docs/` |
 | **`GSI2-SK`**  | `TYPE#FILE#<Timestamp>#<MediaType>#<ResourceID>` | `TYPE#FILE#1224685719000#image/jpeg#R102`  |
 
 #### **2.4.2. Folder Marker VIEW_LINK (Subfolders)**
@@ -235,7 +242,7 @@ Folder markers enable S3-style folder navigation by representing subfolders as q
 | **PK**         | `USER#<ViewerID>`                            | `USER#Justin`                                     |
 | **SK**         | `VIEWLINK#<OwnerID>#FOLDER#<FullFolderPath>` | `VIEWLINK#Sheldon#FOLDER#media/photos/`           |
 | `ItemType`     | `VIEW_LINK`                                  | `VIEW_LINK`                                       |
-| `ResourceID`       | `FOLDER#<FullFolderPath>`                    | `FOLDER#media/photos/`                            |
+| `ResourceID`   | `FOLDER#<FullFolderPath>`                    | `FOLDER#media/photos/`                            |
 | `OwnerID`      | `<UserID>`                                   | `Sheldon`                                         |
 | `GrantID`      | `<UUID>` or `"OWNER"`                        | `G-a1b2c3d4`                                      |
 | `CreatedDate`  | `<Timestamp>`                                | `1224685719000`                                   |
@@ -349,6 +356,7 @@ VIEW_LINKs are automatically maintained to reflect current access permissions. U
 #### **2.5.1. Creation Triggers**
 
 **1. S3 ObjectCreated Event:**
+
 - Creates FILE item
 - Creates file VIEW_LINK for owner (`GrantID: "OWNER"`)
 - Creates folder marker VIEW_LINKs for all ancestor folders (for owner)
@@ -358,12 +366,14 @@ VIEW_LINKs are automatically maintained to reflect current access permissions. U
 - **Does NOT create or modify SHARE_GRANT items**
 
 **2. API Creates PREFIX Grant:**
+
 - Creates SHARE_GRANT item
 - Queries all files under the prefix
 - Creates file VIEW_LINKs for recipient (for all existing files)
 - Creates folder marker VIEW_LINKs for recipient (for all ancestor folders)
 
 **3. API Creates FILE Grant:**
+
 - Creates SHARE_GRANT item
 - Creates single file VIEW_LINK for recipient
 - **Does NOT create folder marker VIEW_LINKs** (file-only access)
@@ -371,6 +381,7 @@ VIEW_LINKs are automatically maintained to reflect current access permissions. U
 #### **2.5.2. Deletion Triggers**
 
 **1. S3 ObjectRemoved Event:**
+
 - Deletes FILE item
 - Deletes file VIEW_LINKs for all users (owner + recipients)
 - Deletes FILE SHARE_GRANTs (if any exist for this specific file)
@@ -378,16 +389,19 @@ VIEW_LINKs are automatically maintained to reflect current access permissions. U
 - **Does NOT delete folder marker VIEW_LINKs** (folders persist even when empty)
 
 **2. API Deletes PREFIX Grant (Revoke Share):**
+
 - Deletes SHARE_GRANT item
 - Deletes all file VIEW_LINKs for recipient under that prefix
 - Deletes all folder marker VIEW_LINKs for recipient under that prefix
 - **Does NOT affect owner's VIEW_LINKs** (owner retains access)
 
 **3. API Deletes FILE Grant:**
+
 - Deletes SHARE_GRANT item
 - Deletes single file VIEW_LINK for recipient
 
 **4. API Deletes Folder (DELETE /{path}/):**
+
 - Validates folder is empty (no files or subfolders)
 - Deletes PREFIX SHARE_GRANTs for this exact folder path
 - Deletes folder marker VIEW_LINKs for all users (owner + recipients)
@@ -421,6 +435,7 @@ VIEW_LINKs are automatically maintained to reflect current access permissions. U
 #### **2.5.4. Design Rationale**
 
 Folders are **logical prefixes** that represent the structure of the file system, not physical entities tied to file existence. This S3-style behavior provides:
+
 - ✅ Persistent folder structure independent of file contents
 - ✅ Automatic sharing of new uploads to previously shared folders
 - ✅ No need to recreate grants after deleting/re-uploading files
@@ -428,13 +443,13 @@ Folders are **logical prefixes** that represent the structure of the file system
 
 #### **2.5.5. Key Architectural Distinctions**
 
-| Operation | Entry Point | What It Touches | SHARE_GRANTs Affected? |
-|-----------|-------------|-----------------|------------------------|
-| **File Upload** | S3 → SQS → Lambda | FILE, VIEW_LINKs | ❌ Never |
-| **File Delete** | S3 → SQS → Lambda | FILE, file VIEW_LINKs, FILE grants | ❌ PREFIX grants unaffected |
-| **Create Share** | API → Lambda | SHARE_GRANT, VIEW_LINKs | ✅ Creates SHARE_GRANT |
-| **Revoke Share** | API → Lambda | SHARE_GRANT, recipient VIEW_LINKs | ✅ Deletes SHARE_GRANT |
-| **Delete Folder** | API → Lambda | PREFIX grants, folder markers | ✅ Deletes PREFIX grants |
+| Operation         | Entry Point       | What It Touches                    | SHARE_GRANTs Affected?      |
+| ----------------- | ----------------- | ---------------------------------- | --------------------------- |
+| **File Upload**   | S3 → SQS → Lambda | FILE, VIEW_LINKs                   | ❌ Never                    |
+| **File Delete**   | S3 → SQS → Lambda | FILE, file VIEW_LINKs, FILE grants | ❌ PREFIX grants unaffected |
+| **Create Share**  | API → Lambda      | SHARE_GRANT, VIEW_LINKs            | ✅ Creates SHARE_GRANT      |
+| **Revoke Share**  | API → Lambda      | SHARE_GRANT, recipient VIEW_LINKs  | ✅ Deletes SHARE_GRANT      |
+| **Delete Folder** | API → Lambda      | PREFIX grants, folder markers      | ✅ Deletes PREFIX grants    |
 
 **Critical Principle:** S3 events handle **file lifecycle**, API operations handle **sharing lifecycle**. This separation of concerns prevents confusion and ensures correct behavior.
 
@@ -854,11 +869,11 @@ loop {
         .set_exclusive_start_key(last_key)
         .send()
         .await?;
-    
+
     if let Some(items) = result.items {
         files.extend(items);
     }
-    
+
     if result.last_evaluated_key.is_none() {
         break;
     }
@@ -870,7 +885,7 @@ for chunk in files.chunks(25) {
     let write_requests: Vec<WriteRequest> = chunk.iter()
         .map(|file| create_view_link_write_request(file, "Justin", &grant_id))
         .collect();
-    
+
     client.batch_write_item()
         .request_items("FileMetadata", write_requests)
         .send()
@@ -1103,7 +1118,6 @@ async fn batch_write_items(items: Vec<HashMap<String, AttributeValue>>) -> Resul
 - ✅ Conditional puts prevent duplicate folder markers
 - ✅ Handles both PREFIX and FILE grants automatically
 
-
 ### **Use Case 7: Sheldon shares a single file from a private folder with Justin**
 
 - **Goal:** Share a specific file (`media/private/confidential-report.pdf`) with Justin without granting access to the parent folder or other files in that folder.
@@ -1256,7 +1270,13 @@ This section provides detailed implementation guidance for the core infrastructu
 
 ### **4.1. S3 Event Processing via SQS**
 
-All file creation, updates, and deletions occur directly in S3. S3 bucket event notifications trigger SQS messages that are processed by a Lambda function to maintain DynamoDB metadata synchronization.
+**Integration with CloudFront:** All file operations (upload, download, delete) go through CloudFront with signed URLs (see [Section 5](#5-cloudfront--s3-signed-url-architecture)). Users never interact with S3 directly. When a user performs an operation via CloudFront, the request is proxied to S3 via Origin Access Control (OAC), and S3 events (ObjectCreated/ObjectRemoved) are triggered.
+
+All file creation, updates, and deletions occur directly in S3 through CloudFront. S3 bucket event notifications trigger SQS messages that are processed by a Lambda function to maintain DynamoDB metadata synchronization. This architecture ensures:
+
+- **Decoupled Processing:** S3 events are buffered in SQS for reliable, asynchronous processing
+- **Automatic Synchronization:** FILE items and VIEW_LINKs are created/updated/deleted automatically when files change in S3
+- **Error Handling:** Failed event processing moves to DLQ after 3 retries for manual investigation
 
 **S3 Event Configuration:**
 
@@ -1688,7 +1708,7 @@ async fn ensure_folder_hierarchy(
     file_path: &str
 ) -> Result<()> {
     let folder_prefix = calculate_folder_prefix(file_path);
-    
+
     if folder_prefix.is_empty() {
         return Ok(()); // Root-level file, no folders needed
     }
@@ -1696,14 +1716,14 @@ async fn ensure_folder_hierarchy(
     // Get all ancestor paths
     // e.g., "media/photos/2024/vacation/" -> ["media/", "media/photos/", "media/photos/2024/", "media/photos/2024/vacation/"]
     let ancestor_paths = get_ancestor_folder_paths(&folder_prefix);
-    
+
     // Find all PREFIX grants that cover any ancestor folder
     let prefix_grants = find_all_matching_prefix_grants(
         client,
         owner_id,
         &ancestor_paths
     ).await?;
-    
+
     // For each ancestor folder path
     for ancestor_path in ancestor_paths {
         // Create folder marker for owner (if doesn't exist)
@@ -1714,7 +1734,7 @@ async fn ensure_folder_hierarchy(
             &ancestor_path,
             "OWNER"
         ).await?;
-        
+
         // Create folder markers for all recipients with PREFIX grants covering this path
         for grant in &prefix_grants {
             if ancestor_path.starts_with(&grant.prefix) {
@@ -1728,7 +1748,7 @@ async fn ensure_folder_hierarchy(
             }
         }
     }
-    
+
     Ok(())
 }
 
@@ -1737,16 +1757,16 @@ fn get_ancestor_folder_paths(folder_prefix: &str) -> Vec<String> {
     if folder_prefix.is_empty() {
         return vec![];
     }
-    
+
     let parts: Vec<&str> = folder_prefix
         .trim_end_matches('/')
         .split('/')
         .filter(|s| !s.is_empty())
         .collect();
-    
+
     let mut ancestors = Vec::new();
     let mut current_path = String::new();
-    
+
     for part in parts {
         if !current_path.is_empty() {
             current_path.push('/');
@@ -1754,7 +1774,7 @@ fn get_ancestor_folder_paths(folder_prefix: &str) -> Vec<String> {
         current_path.push_str(part);
         ancestors.push(format!("{}/", current_path));
     }
-    
+
     ancestors
 }
 
@@ -1771,7 +1791,7 @@ async fn create_folder_marker_if_not_exists(
         .split('/')
         .last()
         .unwrap_or("") + "/";
-    
+
     let parent_prefix = if folder_path.matches('/').count() > 1 {
         let parts: Vec<&str> = folder_path
             .trim_end_matches('/')
@@ -1781,7 +1801,7 @@ async fn create_folder_marker_if_not_exists(
     } else {
         String::new()
     };
-    
+
     let marker = hashmap! {
         "PK" => AttributeValue::S(format!("USER#{}", viewer_id)),
         "SK" => AttributeValue::S(format!("VIEWLINK#{}#FOLDER#{}", owner_id, folder_path)),
@@ -1806,7 +1826,7 @@ async fn create_folder_marker_if_not_exists(
             format!("TYPE#FOLDER#{}#{}", folder_name, owner_id)
         ),
     };
-    
+
     // Use conditional put to avoid duplicates (idempotent)
     match client.put_item()
         .table_name("FileMetadata")
@@ -1832,7 +1852,7 @@ async fn find_all_matching_prefix_grants(
 ) -> Result<Vec<ShareGrant>> {
     let mut grants = Vec::new();
     let mut last_key = None;
-    
+
     loop {
         let result = client.query()
             .table_name("FileMetadata")
@@ -1844,10 +1864,10 @@ async fn find_all_matching_prefix_grants(
             .set_exclusive_start_key(last_key)
             .send()
             .await?;
-        
+
         for item in result.items.unwrap_or_default() {
             let grant = parse_grant(&item)?;
-            
+
             // Check if this grant's prefix matches any of the folder paths
             for folder_path in folder_paths {
                 if folder_path.starts_with(&grant.prefix) {
@@ -1856,13 +1876,13 @@ async fn find_all_matching_prefix_grants(
                 }
             }
         }
-        
+
         if result.last_evaluated_key.is_none() {
             break;
         }
         last_key = result.last_evaluated_key;
     }
-    
+
     Ok(grants)
 }
 
@@ -2055,7 +2075,7 @@ The service exposes a synchronous RESTful API for file metadata queries, folder 
 
 #### **4.2.1. Get File Metadata**
 
-**Purpose:** Retrieve metadata for a specific file.
+**Purpose:** Retrieve metadata for a specific file, including a CloudFront signed URL for immediate download access.
 
 ```http
 GET /storage/{owner-id}/{file-path}
@@ -2070,7 +2090,9 @@ Response 200 OK:
   "media_type": "IMAGE",
   "created_date": 1700000000,
   "size": 2048576,
-  "s3_key": "Sheldon/media/photos/2024/vacation.jpg"
+  "s3_key": "Sheldon/media/photos/2024/vacation.jpg",
+  "signed_url": "https://dev-storage.fromthehart.tech/Sheldon/media/photos/2024/vacation.jpg?Policy=eyJTdGF0ZW1lbnQiO...&Signature=abc123...&Key-Pair-Id=K2JCEXAMPLE",
+  "signed_url_expires_at": 1700086400
 }
 
 Response 403 Forbidden:
@@ -2090,7 +2112,10 @@ Response 404 Not Found:
 1. Extract `user_id` from JWT
 2. Query: `PK = USER#{owner-id}`, `SK = FILE#{file-path}`
 3. Validate permission: Check VIEW_LINK exists (`PK = USER#{user_id}`, `SK = VIEWLINK#{owner-id}#{file_id}`)
-4. Return FILE metadata if authorized
+4. Generate CloudFront signed URL with 24-hour expiration (see [Section 5.3](#53-signed-url-generation))
+5. Return FILE metadata + signed URL if authorized
+
+**Note on Signed URLs:** The `signed_url` field provides immediate download access without requiring a separate API call. The URL expires after 24 hours and includes a cryptographic signature that CloudFront validates.
 
 #### **4.2.2. List Folder Contents** ⚠️ **CRITICAL ENDPOINT**
 
@@ -2122,7 +2147,9 @@ Response 200 OK:
       "file_name": "vacation.jpg",
       "media_type": "IMAGE",
       "created_date": 1700000000,
-      "size": 2048576
+      "size": 2048576,
+      "signed_url": "https://dev-storage.fromthehart.tech/Sheldon/media/photos/2024/vacation.jpg?Policy=...&Signature=...&Key-Pair-Id=...",
+      "signed_url_expires_at": 1700086400
     }
   ],
   "next_cursor": "eyJQSyI6IlVTRVIjU2hlbGRvbiIsIC4uLn0="
@@ -2149,8 +2176,75 @@ Response 403 Forbidden:
 - Use DynamoDB Accelerator (DAX) for sub-millisecond reads
 - Optimize GSI2 projection to minimize item size
 - FilterExpression counts against RCU even for filtered items
+- Generating signed URLs for each file adds latency; consider lazy loading (generate on-demand)
 
-#### **4.2.3. Create Folder Marker**
+**Note on Signed URLs:** Each file includes a `signed_url` field for immediate download access. The URLs expire after 24 hours and are secured with RSA signatures verified by CloudFront (see [Section 5](#5-cloudfront--s3-signed-url-architecture)).
+
+#### **4.2.3. Generate Signed URL for Upload**
+
+**Purpose:** Request a CloudFront signed URL for uploading a file directly to S3 via CloudFront. Required before uploading any file.
+
+```http
+POST /storage/signed-url
+Authorization: Bearer <jwt-token>
+
+Request Body:
+{
+  "operation": "upload",
+  "file_path": "media/photos/vacation.jpg",
+  "content_type": "image/jpeg"
+}
+
+Response 200 OK:
+{
+  "signed_url": "https://dev-storage.fromthehart.tech/Sheldon/media/photos/vacation.jpg?Policy=eyJTdGF0ZW1lbnQiO...&Signature=abc123...&Key-Pair-Id=K2JCEXAMPLE",
+  "expires_at": 1700000900,
+  "method": "PUT",
+  "headers": {
+    "Content-Type": "image/jpeg"
+  }
+}
+
+Response 400 Bad Request:
+{
+  "error": "INVALID_PATH",
+  "message": "File path must start with your user ID"
+}
+
+Response 403 Forbidden:
+{
+  "error": "ACCESS_DENIED",
+  "message": "Cannot upload to this path"
+}
+```
+
+**Implementation:**
+
+1. Extract `user_id` from JWT
+2. Validate file path starts with `{user_id}/` (users can only upload to their own paths)
+3. Validate file path doesn't contain malicious patterns (`..`, `//`, null bytes, etc.)
+4. Generate CloudFront signed URL with wildcard policy and 15-minute expiration (see [Section 5.3](#53-signed-url-generation))
+5. Return signed URL + upload instructions
+
+**Upload Flow:**
+
+```
+1. Client calls POST /storage/signed-url → receives signed URL
+2. Client uploads file directly to CloudFront using PUT request
+3. CloudFront verifies signature and proxies to S3 via OAC
+4. S3 stores file and sends ObjectCreated event to SQS
+5. Lambda processes event and creates FILE + VIEW_LINK items in DynamoDB
+6. Client polls GET /storage/{owner-id}/{file-path} until file appears (typically 1-3 seconds)
+```
+
+**Security Notes:**
+
+- Signed URL expires in 15 minutes (prevents replay attacks)
+- Users can only upload to paths matching their user ID
+- CloudFront validates signature before forwarding to S3
+- S3 event processor validates file ownership before creating DynamoDB items
+
+#### **4.2.4. Create Folder Marker**
 
 **Purpose:** Explicitly create an empty folder (S3 event processor creates them automatically when files are uploaded). Uses PUT for idempotent folder creation.
 
@@ -2179,7 +2273,7 @@ Response 200 OK:
 3. Create VIEW_LINK folder marker with `condition_expression: attribute_not_exists(PK)` for idempotency
 4. Return 201 if created, 200 if already exists (PUT is idempotent)
 
-#### **4.2.4. Create Share Grant (PREFIX or FILE)**
+#### **4.2.5. Create Share Grant (PREFIX or FILE)**
 
 **Purpose:** Share a folder (PREFIX grant) or individual file (FILE grant) with another user.
 
@@ -2233,7 +2327,7 @@ Response 400 Bad Request:
 
 **Performance Note:** For large PREFIX grants (>1000 files), this may take 10-30 seconds. All operations complete synchronously before returning. Show progress indicator in UI.
 
-#### **4.2.5. List Grants (Owned or Received)**
+#### **4.2.6. List Grants (Owned or Received)**
 
 **Purpose:** List all grants created by user or received by user.
 
@@ -2269,7 +2363,7 @@ Response 200 OK (filter=owned):
 - Enrich with user emails
 - Return paginated results
 
-#### **4.2.6. Get Grant Details**
+#### **4.2.7. Get Grant Details**
 
 **Purpose:** Get detailed information about a specific grant.
 
@@ -2302,7 +2396,7 @@ Response 403 Forbidden:
 3. Verify `user_id == owner_id OR user_id == recipient_id`
 4. Return grant details
 
-#### **4.2.7. Revoke Grant**
+#### **4.2.8. Revoke Grant**
 
 **Purpose:** Delete a grant, removing all access for the recipient.
 
@@ -2330,7 +2424,7 @@ Response 403 Forbidden:
 
 **Performance Note:** Revoking PREFIX grants with many files may take 10-30 seconds.
 
-#### **4.2.8. DELETE /{path}/  - Delete Empty Folder**
+#### **4.2.9. DELETE /{path}/ - Delete Empty Folder**
 
 **Purpose:** Delete an empty folder and all associated PREFIX grants. This is a metadata-only operation (no S3 interaction).
 
@@ -2374,7 +2468,7 @@ async fn delete_folder(
             "Only the folder owner can delete folders"
         ));
     }
-    
+
     // 2. Verify folder exists (check for owner's folder marker)
     let folder_exists = check_folder_marker_exists(
         client,
@@ -2382,41 +2476,41 @@ async fn delete_folder(
         owner_id,
         folder_path
     ).await?;
-    
+
     if !folder_exists {
         return Err(ApiError::NotFound("Folder does not exist"));
     }
-    
+
     // 3. Check if folder is empty (no files or subfolders)
     let has_contents = check_folder_has_contents(
         client,
         owner_id,
         folder_path
     ).await?;
-    
+
     if has_contents {
         return Err(ApiError::BadRequest(
             "Cannot delete folder. The folder must be empty before deletion. \
              Please delete all files and subfolders first, then try again."
         ));
     }
-    
+
     // 4. Find all PREFIX grants for this exact folder path
     let prefix_grants = query_prefix_grants_for_exact_folder(
         client,
         owner_id,
         folder_path
     ).await?;
-    
+
     // 5. Delete folder marker VIEW_LINKs for all recipients
     let mut delete_operations = vec![];
-    
+
     // Delete owner's folder marker
     delete_operations.push((
         format!("USER#{}", owner_id),
         format!("VIEWLINK#{}#FOLDER#{}", owner_id, folder_path)
     ));
-    
+
     // Delete recipient folder markers
     for grant in &prefix_grants {
         delete_operations.push((
@@ -2424,7 +2518,7 @@ async fn delete_folder(
             format!("VIEWLINK#{}#FOLDER#{}", owner_id, folder_path)
         ));
     }
-    
+
     // Batch delete VIEW_LINKs
     for (pk, sk) in delete_operations {
         client.delete_item()
@@ -2434,7 +2528,7 @@ async fn delete_folder(
             .send()
             .await?;
     }
-    
+
     // 6. Delete all PREFIX SHARE_GRANTs for this folder
     for grant in prefix_grants {
         client.delete_item()
@@ -2448,7 +2542,7 @@ async fn delete_folder(
             .send()
             .await?;
     }
-    
+
     Ok(Response::NoContent)
 }
 
@@ -2474,7 +2568,7 @@ async fn check_folder_has_contents(
         .limit(1) // We only need to know if ANY item exists
         .send()
         .await?;
-    
+
     // If any items found, folder is not empty
     Ok(result.items.map(|i| !i.is_empty()).unwrap_or(false))
 }
@@ -2496,7 +2590,7 @@ async fn check_folder_marker_exists(
         )))
         .send()
         .await?;
-    
+
     Ok(result.item.is_some())
 }
 
@@ -2508,7 +2602,7 @@ async fn query_prefix_grants_for_exact_folder(
 ) -> Result<Vec<ShareGrant>> {
     let mut grants = Vec::new();
     let mut last_key = None;
-    
+
     loop {
         let result = client.query()
             .table_name("FileMetadata")
@@ -2521,17 +2615,17 @@ async fn query_prefix_grants_for_exact_folder(
             .set_exclusive_start_key(last_key)
             .send()
             .await?;
-        
+
         for item in result.items.unwrap_or_default() {
             grants.push(parse_grant(&item)?);
         }
-        
+
         if result.last_evaluated_key.is_none() {
             break;
         }
         last_key = result.last_evaluated_key;
     }
-    
+
     Ok(grants)
 }
 ```
@@ -2547,11 +2641,11 @@ async fn query_prefix_grants_for_exact_folder(
 
 **Important Distinctions:**
 
-| Operation | Entry Point | What It Deletes | S3 Involved? |
-|-----------|-------------|-----------------|---------------|
-| **Delete File** | S3 direct delete → SQS → Lambda | FILE item, file VIEW_LINKs, FILE grants | ✅ Yes |
-| **Delete Folder** | API `DELETE /{path}/` | Folder markers, PREFIX grants | ❌ No (metadata only) |
-| **Revoke Share** | API `DELETE /shares/{grantId}` | SHARE_GRANT, recipient VIEW_LINKs | ❌ No (metadata only) |
+| Operation         | Entry Point                     | What It Deletes                         | S3 Involved?          |
+| ----------------- | ------------------------------- | --------------------------------------- | --------------------- |
+| **Delete File**   | S3 direct delete → SQS → Lambda | FILE item, file VIEW_LINKs, FILE grants | ✅ Yes                |
+| **Delete Folder** | API `DELETE /{path}/`           | Folder markers, PREFIX grants           | ❌ No (metadata only) |
+| **Revoke Share**  | API `DELETE /shares/{grantId}`  | SHARE_GRANT, recipient VIEW_LINKs       | ❌ No (metadata only) |
 
 **Safety Constraint:** Folders must be empty before deletion. Files must be deleted via S3 (which triggers S3 event processor to clean up DynamoDB).
 
@@ -2576,6 +2670,7 @@ async fn query_prefix_grants_for_exact_folder(
 **Permissions Model:**
 
 For MVP, two permission levels are sufficient:
+
 - `READ` - View and download files
 - `READ_WRITE` - View, download, upload, and delete files
 
@@ -2917,7 +3012,890 @@ async fn delete_view_link(client: &DynamoDbClient, pk: &str, sk: &str) -> Result
 }
 ```
 
-## **5. Performance Characteristics and Cost Analysis**
+## **5. CloudFront + S3 Signed URL Architecture**
+
+This section documents how users securely access physical files stored in S3 through CloudFront with signed URLs, and how file operations trigger DynamoDB metadata synchronization via S3 events.
+
+### **5.1. Architecture Overview**
+
+**Core Principle:** Users never interact with S3 directly. All file operations (upload, download, delete) go through CloudFront with signed URLs that provide time-limited, cryptographically secure access to specific resources.
+
+```
+┌─────────────┐
+│   Client    │
+│  (Browser/  │
+│     App)    │
+└──────┬──────┘
+       │
+       │ 1. Request signed URL
+       ├──────────────────────────────────────┐
+       │                                      │
+       │                                      ▼
+       │                              ┌──────────────┐
+       │                              │  API Lambda  │
+       │                              │  (HTTP)      │
+       │                              └───────┬──────┘
+       │                                      │
+       │                                      │ - Validates JWT
+       │                                      │ - Checks VIEW_LINK permissions
+       │                                      │ - Generates CloudFront signed URL
+       │                                      │   using RSA private key from SSM
+       │                                      │
+       │ 2. Returns signed URL                │
+       │◄─────────────────────────────────────┤
+       │                                      │
+       │ 3. Upload/Download/Delete            │
+       │    with signed URL                   │
+       ├──────────────────┐                   │
+       │                  │                   │
+       │                  ▼                   │
+       │          ┌───────────────┐           │
+       │          │  CloudFront   │           │
+       │          │  Distribution │           │
+       │          │   (OAC Auth)  │           │
+       │          └───────┬───────┘           │
+       │                  │                   │
+       │                  │ Origin Access     │
+       │                  │ Control (OAC)     │
+       │                  │                   │
+       │                  ▼                   │
+       │          ┌───────────────┐           │
+       │          │   S3 Bucket   │           │
+       │          │  (Private)    │           │
+       │          └───────┬───────┘           │
+       │                  │                   │
+       │                  │ 4. S3 Event       │
+       │                  │    (ObjectCreated │
+       │                  │     /Removed)     │
+       │                  │                   │
+       │                  ▼                   │
+       │          ┌───────────────┐           │
+       │          │  SQS Queue    │           │
+       │          └───────┬───────┘           │
+       │                  │                   │
+       │                  │ 5. Trigger        │
+       │                  │                   │
+       │                  ▼                   │
+       │          ┌───────────────┐           │
+       │          │ Event Lambda  │           │
+       │          │  (SQS)        │           │
+       │          └───────┬───────┘           │
+       │                  │                   │
+       │                  │ 6. Update         │
+       │                  │    Metadata       │
+       │                  │                   │
+       │                  ▼                   │
+       │          ┌───────────────┐           │
+       └─────────►│   DynamoDB    │           │
+  7. Query file   │  FileMetadata │           │
+     metadata     └───────────────┘           │
+                                              │
+```
+
+**Key Components:**
+
+1. **CloudFront Distribution:** `dev-storage.fromthehart.tech` (or `storage.fromthehart.tech` in production)
+2. **Origin Access Control (OAC):** Restricts S3 bucket access to only CloudFront (replaces legacy OAI)
+3. **S3 Bucket:** Private bucket, no public access, only accessible via CloudFront with OAC
+4. **RSA Key Pair:** CloudFront public key (in key group), private key (in SSM Parameter Store)
+5. **SQS Queue:** Buffers S3 events for reliable processing
+6. **Lambda Functions:** HTTP API (signed URL generation) + SQS processor (metadata sync)
+
+### **5.2. CloudFront Distribution Configuration**
+
+#### **5.2.1. Origin Access Control (OAC)**
+
+CloudFront uses **Origin Access Control** to securely access the private S3 bucket. This is the modern replacement for Origin Access Identity (OAI).
+
+**OAC Benefits:**
+
+- ✅ Supports all S3 operations (GET, PUT, DELETE, HEAD)
+- ✅ Works with S3 bucket encryption (SSE-S3, SSE-KMS)
+- ✅ Simplified IAM policy management
+- ✅ AWS recommended approach for new distributions
+
+**S3 Bucket Policy (OAC):**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowCloudFrontServicePrincipal",
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "cloudfront.amazonaws.com"
+      },
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::storage-bucket-name/*",
+      "Condition": {
+        "StringEquals": {
+          "AWS:SourceArn": "arn:aws:cloudfront::ACCOUNT_ID:distribution/DISTRIBUTION_ID"
+        }
+      }
+    }
+  ]
+}
+```
+
+**Result:** S3 bucket is completely private. Only CloudFront with the specific distribution ID can access objects.
+
+#### **5.2.2. Cache Behaviors**
+
+The CloudFront distribution has two cache behaviors to handle public and private content:
+
+| Path Pattern   | Requires Signed URL | Cache TTL            | Use Case                                                     |
+| :------------- | :------------------ | :------------------- | :----------------------------------------------------------- |
+| `/public/*`    | ❌ No               | 1 day                | Public assets (profile pictures, public albums) - future use |
+| `/*` (default) | ✅ Yes              | No cache (0 seconds) | All user files - requires permission validation              |
+
+**Note:** The `/public/*` path is configured for potential future use cases (e.g., public profile pictures, shared albums with public links). Currently, all user files are private and require signed URLs.
+
+**Default Behavior Settings:**
+
+- **Viewer Protocol Policy:** Redirect HTTP to HTTPS
+- **Allowed HTTP Methods:** GET, HEAD, OPTIONS, PUT, POST, DELETE
+- **Cache Policy:** CachingDisabled (files are private, cache would bypass permission checks)
+- **Origin Request Policy:** AllViewer (forward all headers, query strings, cookies)
+- **Trusted Key Groups:** Contains the CloudFront public key for signature verification
+
+### **5.3. Signed URL Generation**
+
+#### **5.3.1. Custom Policy with Wildcards**
+
+The system uses **custom policies** instead of canned policies to support wildcard resource URLs. This allows generating a single signed URL that grants access to multiple files under a prefix.
+
+**Custom Policy Structure:**
+
+```json
+{
+  "Statement": [
+    {
+      "Resource": "https://dev-storage.fromthehart.tech/*",
+      "Condition": {
+        "DateLessThan": {
+          "AWS:EpochTime": 1700000000
+        }
+      }
+    }
+  ]
+}
+```
+
+**Wildcard Usage:**
+
+- **Upload:** `https://dev-storage.fromthehart.tech/*` (wildcard allows uploading to any path the user owns)
+- **Download:** `https://dev-storage.fromthehart.tech/{user_id}/{file_path}` (specific file, but wildcard policy simplifies implementation)
+- **Delete:** Same as download (specific file with wildcard policy)
+
+**Why Wildcards:**
+
+- Simplifies signed URL generation logic (one policy format for all operations)
+- Allows batch operations in the future (download entire folder as zip)
+- Reduces complexity of tracking individual file signatures
+
+**Security Note:** Wildcard scope is acceptable because:
+
+1. URLs are time-limited (expire in minutes/hours)
+2. Permission validation happens **before** generating the signed URL
+3. User can only request URLs for files they have VIEW_LINK access to
+4. S3 key structure (`{user_id}/{file_path}`) prevents cross-user access
+
+#### **5.3.2. RSA Signature Algorithm**
+
+CloudFront signed URLs use **RSA PKCS#1 v1.5 with SHA-1** for signature generation.
+
+**Signing Process:**
+
+```rust
+use base64::{engine::general_purpose::STANDARD, Engine as _};
+use rsa::{pkcs1::DecodeRsaPrivateKey, RsaPrivateKey};
+use rsa::pkcs1v15::SigningKey;
+use rsa::signature::{SignatureEncoding, Signer};
+use sha1::Sha1;
+
+// 1. Load private key from SSM Parameter Store
+let private_key_pem = get_ssm_parameter("/cloudfront/storage/private-key").await?;
+let private_key = RsaPrivateKey::from_pkcs1_pem(&private_key_pem)?;
+
+// 2. Create custom policy JSON
+let resource_url = format!("https://dev-storage.fromthehart.tech/*");
+let expiration_epoch = (Utc::now() + Duration::hours(24)).timestamp();
+
+let custom_policy = serde_json::json!({
+    "Statement": [{
+        "Resource": resource_url,
+        "Condition": {
+            "DateLessThan": {
+                "AWS:EpochTime": expiration_epoch
+            }
+        }
+    }]
+}).to_string();
+
+// 3. Sign policy with RSA PKCS#1 v1.5 + SHA-1
+let signing_key = SigningKey::<Sha1>::new(private_key);
+let signature = signing_key.sign(custom_policy.as_bytes());
+
+// 4. Base64 encode for CloudFront (URL-safe)
+let signature_b64 = STANDARD.encode(signature.to_bytes())
+    .replace("+", "-")
+    .replace("=", "_")
+    .replace("/", "~");
+
+let policy_b64 = STANDARD.encode(custom_policy.as_bytes())
+    .replace("+", "-")
+    .replace("=", "_")
+    .replace("/", "~");
+
+// 5. Construct signed URL
+let signed_url = format!(
+    "{}?Policy={}&Signature={}&Key-Pair-Id={}",
+    resource_url,
+    policy_b64,
+    signature_b64,
+    cloudfront_key_pair_id
+);
+```
+
+**Base64 Encoding for CloudFront:**
+
+CloudFront requires a URL-safe Base64 variant with character substitutions:
+
+- `+` → `-`
+- `=` → `_`
+- `/` → `~`
+
+This ensures the signed URL can be safely embedded in HTTP query strings without encoding issues.
+
+**Private Key Storage:**
+
+- **Location:** AWS Systems Manager Parameter Store
+- **Parameter Name:** `/cloudfront/storage/private-key`
+- **Type:** SecureString (encrypted with AWS KMS)
+- **Access:** Restricted to API Lambda function via IAM policy
+- **Rotation:** Manual (requires CloudFront key group update)
+
+**Public Key Configuration:**
+
+- Uploaded to CloudFront as a **Public Key** resource
+- Added to a **Key Group** resource
+- Key Group attached to CloudFront distribution's **Trusted Key Groups**
+- CloudFront uses the public key to verify signature authenticity
+
+#### **5.3.3. Expiration Windows**
+
+Different operations use different expiration times based on their expected duration and security requirements:
+
+| Operation           | Expiration Window | Rationale                                                        |
+| :------------------ | :---------------- | :--------------------------------------------------------------- |
+| **Upload (PUT)**    | 15 minutes        | Short-lived, one-time use; prevents replay attacks               |
+| **Download (GET)**  | 24 hours          | Allows viewing, sharing temporary links, downloading large files |
+| **Delete (DELETE)** | 5 minutes         | Critical operation, very short window; user must confirm quickly |
+
+**Implementation Example:**
+
+```rust
+fn get_expiration_duration(operation: &str) -> Duration {
+    match operation {
+        "upload" => Duration::minutes(15),
+        "download" => Duration::hours(24),
+        "delete" => Duration::minutes(5),
+        _ => Duration::hours(1), // Default fallback
+    }
+}
+```
+
+### **5.4. Integration with API Responses**
+
+#### **5.4.1. Signed URLs in File Metadata**
+
+All API responses that return file metadata automatically include a CloudFront signed URL for immediate download access.
+
+**Example: GET /storage/{owner_id}/{file_path}**
+
+```json
+{
+  "file_id": "R102",
+  "owner_id": "Sheldon",
+  "file_name": "DSCN0010.jpg",
+  "folder_prefix": "media/Project Docs/",
+  "media_type": "image/jpeg",
+  "created_date": 1224685719000,
+  "size": 161713,
+  "s3_key": "Sheldon/media/Project Docs/DSCN0010.jpg",
+  "signed_url": "https://dev-storage.fromthehart.tech/Sheldon/media/Project%20Docs/DSCN0010.jpg?Policy=eyJTdGF0ZW1lbnQiO...&Signature=abc123...&Key-Pair-Id=K2JCEXAMPLE"
+}
+```
+
+**Example: GET /storage/{user_id}/{folder_path}/ (List Folder)**
+
+```json
+{
+  "subfolders": [
+    {
+      "name": "2024/",
+      "full_path": "media/Project Docs/2024/",
+      "owners": ["Sheldon"]
+    }
+  ],
+  "files": [
+    {
+      "file_id": "R102",
+      "owner_id": "Sheldon",
+      "file_name": "DSCN0010.jpg",
+      "folder_prefix": "media/Project Docs/",
+      "media_type": "image/jpeg",
+      "created_date": 1224685719000,
+      "size": 161713,
+      "signed_url": "https://dev-storage.fromthehart.tech/Sheldon/media/Project%20Docs/DSCN0010.jpg?Policy=...&Signature=...&Key-Pair-Id=..."
+    },
+    {
+      "file_id": "R103",
+      "owner_id": "Sheldon",
+      "file_name": "vacation.jpg",
+      "folder_prefix": "media/Project Docs/2024/",
+      "media_type": "image/jpeg",
+      "created_date": 1224685740000,
+      "size": 245000,
+      "signed_url": "https://dev-storage.fromthehart.tech/Sheldon/media/Project%20Docs/2024/vacation.jpg?Policy=...&Signature=...&Key-Pair-Id=..."
+    }
+  ],
+  "next_cursor": null,
+  "count": 3
+}
+```
+
+**Performance Consideration:** Generating signed URLs for large folder listings (1000+ files) can add latency. Consider:
+
+- Generate signed URLs lazily (on-demand when user clicks file)
+- Cache signed URL generation results (with TTL matching expiration)
+- Use wildcard policies to generate fewer signatures
+
+#### **5.4.2. Upload Signed URL Endpoint**
+
+Users must request a signed URL before uploading files.
+
+**Endpoint:** `POST /storage/signed-url`
+
+**Request Body:**
+
+```json
+{
+  "operation": "upload",
+  "file_path": "media/photos/vacation.jpg",
+  "content_type": "image/jpeg"
+}
+```
+
+**Response:**
+
+```json
+{
+  "signed_url": "https://dev-storage.fromthehart.tech/Sheldon/media/photos/vacation.jpg?Policy=...&Signature=...&Key-Pair-Id=...",
+  "expires_at": 1700000900,
+  "method": "PUT",
+  "headers": {
+    "Content-Type": "image/jpeg"
+  }
+}
+```
+
+**API Validation:**
+
+1. Extract `user_id` from JWT token
+2. Validate file path starts with `user_id` (users can only upload to their own path)
+3. Check file path doesn't contain malicious patterns (`..`, `//`, etc.)
+4. Generate signed URL with 15-minute expiration
+5. Return URL + upload instructions
+
+**Client Upload Flow:**
+
+```javascript
+// 1. Request signed URL
+const response = await fetch("/storage/signed-url", {
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${jwt_token}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    operation: "upload",
+    file_path: "media/photos/vacation.jpg",
+    content_type: "image/jpeg",
+  }),
+});
+
+const { signed_url, headers } = await response.json();
+
+// 2. Upload file directly to CloudFront
+await fetch(signed_url, {
+  method: "PUT",
+  headers: headers,
+  body: fileBlob,
+});
+
+// 3. Poll for file metadata (S3 event processing is async)
+let retries = 10;
+while (retries-- > 0) {
+  const file = await fetch("/storage/Sheldon/media/photos/vacation.jpg");
+  if (file.ok) break;
+  await sleep(1000); // Wait 1 second
+}
+```
+
+### **5.5. S3 Event Processing Flow**
+
+#### **5.5.1. Event Trigger Architecture**
+
+```
+CloudFront (PUT) → S3 (ObjectCreated) → SQS → Lambda → DynamoDB
+CloudFront (DELETE) → S3 (ObjectRemoved) → SQS → Lambda → DynamoDB
+```
+
+**S3 Bucket Notification Configuration:**
+
+```hcl
+resource "aws_s3_bucket_notification" "file_events" {
+  bucket = aws_s3_bucket.file_storage.id
+
+  queue {
+    queue_arn = aws_sqs_queue.s3_events.arn
+    events    = [
+      "s3:ObjectCreated:*",
+      "s3:ObjectRemoved:*"
+    ]
+    filter_prefix = "" # Process all objects
+  }
+}
+```
+
+**SQS Queue Configuration:**
+
+- **Visibility Timeout:** 300 seconds (5 minutes for Lambda processing)
+- **Message Retention:** 14 days
+- **Dead Letter Queue:** After 3 failed attempts, message moves to DLQ
+- **Long Polling:** 20 seconds to reduce empty receives
+
+#### **5.5.2. S3 Event Message Format**
+
+**Example ObjectCreated Event:**
+
+```json
+{
+  "Records": [
+    {
+      "eventVersion": "2.1",
+      "eventSource": "aws:s3",
+      "awsRegion": "us-east-1",
+      "eventTime": "2024-11-17T10:30:45.123Z",
+      "eventName": "ObjectCreated:Put",
+      "s3": {
+        "bucket": {
+          "name": "storage-bucket-name",
+          "arn": "arn:aws:s3:::storage-bucket-name"
+        },
+        "object": {
+          "key": "Sheldon/media/photos/vacation.jpg",
+          "size": 2048576,
+          "eTag": "abc123def456",
+          "sequencer": "00617F3E8B9A1234"
+        }
+      }
+    }
+  ]
+}
+```
+
+**Example ObjectRemoved Event:**
+
+```json
+{
+  "Records": [
+    {
+      "eventName": "ObjectRemoved:Delete",
+      "s3": {
+        "bucket": { "name": "storage-bucket-name" },
+        "object": { "key": "Sheldon/media/photos/vacation.jpg" }
+      }
+    }
+  ]
+}
+```
+
+#### **5.5.3. Lambda Event Processor Logic**
+
+**High-Level Flow:**
+
+```rust
+async fn handle_sqs_event(event: SqsEvent) -> Result<()> {
+    for record in event.records {
+        let s3_event: S3Event = serde_json::from_str(&record.body)?;
+
+        for s3_record in s3_event.records {
+            match s3_record.event_name.as_str() {
+                name if name.starts_with("ObjectCreated:") => {
+                    handle_file_created(&s3_record).await?;
+                },
+                name if name.starts_with("ObjectRemoved:") => {
+                    handle_file_deleted(&s3_record).await?;
+                },
+                _ => continue,
+            }
+        }
+    }
+    Ok(())
+}
+```
+
+**ObjectCreated Processing:**
+
+```rust
+async fn handle_file_created(s3_record: &S3EventRecord) -> Result<()> {
+    let s3_key = &s3_record.s3.object.key;
+
+    // 1. Parse user_id and file_path from S3 key
+    let (user_id, file_path) = parse_s3_key(s3_key)?;
+    // Example: "Sheldon/media/photos/vacation.jpg" → ("Sheldon", "media/photos/vacation.jpg")
+
+    // 2. Fetch S3 object metadata and head bytes
+    let s3_metadata = get_object_metadata(s3_key).await?;
+    let head_bytes = get_object_head_bytes(s3_key, 524288).await?; // First 512KB
+
+    // 3. Extract media metadata (dimensions, EXIF, duration, etc.)
+    let media_metadata = extract_media_metadata(&head_bytes, &s3_metadata.content_type)?;
+
+    // 4. Create FILE item in DynamoDB
+    let file_id = generate_uuid();
+    let folder_prefix = extract_folder_prefix(&file_path);
+
+    create_file_item(&FileItem {
+        pk: format!("USER#{}", user_id),
+        sk: format!("FILE#{}", file_path),
+        item_type: "FILE",
+        file_id,
+        owner_id: user_id.clone(),
+        file_name: extract_file_name(&file_path),
+        folder_prefix: folder_prefix.clone(),
+        created_date: Utc::now().timestamp_millis(),
+        media_type: s3_metadata.content_type,
+        s3_key: s3_key.clone(),
+        size: s3_record.s3.object.size,
+        media_metadata,
+    }).await?;
+
+    // 5. Create owner's VIEW_LINK
+    create_view_link(&user_id, &user_id, &file_id, "OWNER", &folder_prefix).await?;
+
+    // 6. Create folder marker VIEW_LINKs for all ancestor folders
+    create_folder_markers(&user_id, &user_id, "OWNER", &folder_prefix).await?;
+
+    // 7. Query PREFIX grants for this path
+    let grants = find_prefix_grants(&user_id, &folder_prefix).await?;
+
+    // 8. Create recipient VIEW_LINKs for each grant
+    for grant in grants {
+        create_view_link(&grant.recipient_id, &user_id, &file_id, &grant.grant_id, &folder_prefix).await?;
+        create_folder_markers(&grant.recipient_id, &user_id, &grant.grant_id, &folder_prefix).await?;
+    }
+
+    Ok(())
+}
+```
+
+**ObjectRemoved Processing:**
+
+```rust
+async fn handle_file_deleted(s3_record: &S3EventRecord) -> Result<()> {
+    let s3_key = &s3_record.s3.object.key;
+    let (user_id, file_path) = parse_s3_key(s3_key)?;
+
+    // 1. Query FILE item to get file_id
+    let file_item = get_file_item(&user_id, &file_path).await?;
+
+    // 2. Delete FILE item
+    delete_file_item(&user_id, &file_path).await?;
+
+    // 3. Query and delete all VIEW_LINKs for this file (owner + recipients)
+    let view_links = query_view_links_by_file_id(&file_item.file_id).await?;
+    for view_link in view_links {
+        delete_view_link(&view_link.pk, &view_link.sk).await?;
+    }
+
+    // 4. Delete FILE grants (if any)
+    let file_grants = query_file_grants(&user_id, &file_item.file_id).await?;
+    for grant in file_grants {
+        delete_grant(&grant.pk, &grant.sk).await?;
+    }
+
+    // Note: Folder marker VIEW_LINKs persist (other files may share the same folders)
+
+    Ok(())
+}
+```
+
+**Metadata Extraction:**
+
+The Lambda function fetches the first 512KB of each uploaded file to extract media metadata:
+
+```rust
+async fn extract_media_metadata(head_bytes: &[u8], content_type: &str) -> Result<Option<MediaMetadata>> {
+    match content_type {
+        "image/jpeg" | "image/png" | "image/webp" => {
+            // Extract image dimensions, EXIF data, GPS coordinates
+            extract_image_metadata(head_bytes).await
+        },
+        "video/mp4" | "video/quicktime" => {
+            // Extract video duration, resolution, codec
+            extract_video_metadata(head_bytes).await
+        },
+        "application/pdf" => {
+            // Extract PDF metadata (page count, author, etc.)
+            extract_pdf_metadata(head_bytes).await
+        },
+        _ => Ok(None), // No metadata extraction for other types
+    }
+}
+```
+
+**Metadata Example (JPEG):**
+
+```json
+{
+  "type": "image",
+  "width": 4032,
+  "height": 3024,
+  "exif": {
+    "Model": "iPhone 14 Pro",
+    "DateTimeOriginal": "2024-11-17 10:30:45",
+    "FocalLength": "6.86",
+    "ISO": "100",
+    "ExposureTime": "1/120"
+  },
+  "gps": {
+    "latitude": 37.7749,
+    "longitude": -122.4194,
+    "altitude": 15.2
+  }
+}
+```
+
+### **5.6. Security Considerations**
+
+#### **5.6.1. Private Key Protection**
+
+**Storage:**
+
+- Private key stored in AWS SSM Parameter Store as SecureString
+- Encrypted at rest with AWS KMS
+- Never logged or exposed in plaintext
+
+**Access Control:**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "ssm:GetParameter",
+      "Resource": "arn:aws:ssm:us-east-1:ACCOUNT_ID:parameter/cloudfront/storage/private-key",
+      "Principal": {
+        "AWS": "arn:aws:iam::ACCOUNT_ID:role/api-lambda-role"
+      }
+    }
+  ]
+}
+```
+
+**Rotation Strategy:**
+
+- Manual rotation (requires coordinated CloudFront + SSM update)
+- Rotate annually or when compromise suspected
+- Zero-downtime rotation: Add new key to key group, remove old key after propagation
+
+#### **5.6.2. Signed URL Security**
+
+**Time-Limited Access:**
+
+- Short expiration windows (15 minutes for uploads, 24 hours for downloads)
+- Expired URLs are rejected by CloudFront (no server-side validation needed)
+
+**Operation Scope:**
+
+- Upload URLs: User can only upload to paths they own (`{user_id}/*`)
+- Download URLs: Generated only after VIEW_LINK validation
+- Delete URLs: Same as downloads (user must have VIEW_LINK access)
+
+**Replay Attack Prevention:**
+
+- Upload URLs are single-use (subsequent PUTs overwrite)
+- CloudFront logs all requests for audit trail
+- Monitor for suspicious patterns (multiple downloads of same URL)
+
+#### **5.6.3. Permission Validation**
+
+**Before Generating Signed URL:**
+
+```rust
+async fn generate_signed_url(
+    user_id: &str,
+    file_path: &str,
+    operation: &str,
+) -> Result<String> {
+    // 1. Parse owner_id from file_path
+    let owner_id = file_path.split('/').next()
+        .ok_or(Error::InvalidPath)?;
+
+    // 2. Check VIEW_LINK exists (permission proof)
+    let view_link_exists = check_view_link_exists(
+        user_id,
+        owner_id,
+        &extract_file_id_from_path(file_path)?
+    ).await?;
+
+    if !view_link_exists {
+        return Err(Error::Forbidden("No access to this file"));
+    }
+
+    // 3. Generate signed URL (user has permission)
+    let signed_url = create_cloudfront_signed_url(
+        &file_path,
+        operation,
+        get_expiration_duration(operation)
+    ).await?;
+
+    Ok(signed_url)
+}
+```
+
+#### **5.6.4. S3 Bucket Security**
+
+**Bucket Policy:**
+
+- Denies all public access
+- Only CloudFront (via OAC) can access objects
+- Specific distribution ID required in policy condition
+
+**Encryption:**
+
+- Server-side encryption enabled (SSE-S3 or SSE-KMS)
+- Encryption applied automatically to all uploads
+- CloudFront OAC supports both encryption types
+
+**Versioning:**
+
+- S3 versioning disabled for MVP (simplifies deletion)
+- Consider enabling for data recovery in production
+- Would require VIEW_LINK versioning support
+
+### **5.7. Complete Flow Examples**
+
+#### **5.7.1. Upload Flow**
+
+```
+1. User: POST /storage/signed-url
+   Body: { "operation": "upload", "file_path": "media/photos/vacation.jpg", "content_type": "image/jpeg" }
+
+2. API Lambda:
+   - Validates JWT → user_id = "Sheldon"
+   - Validates path starts with "Sheldon/"
+   - Generates signed URL (15-minute expiration)
+   - Returns: { "signed_url": "https://dev-storage.fromthehart.tech/...", "method": "PUT" }
+
+3. User: PUT https://dev-storage.fromthehart.tech/Sheldon/media/photos/vacation.jpg?Policy=...&Signature=...
+   Headers: { "Content-Type": "image/jpeg" }
+   Body: <file bytes>
+
+4. CloudFront:
+   - Verifies signature with public key
+   - Checks expiration
+   - Forwards request to S3 via OAC
+
+5. S3:
+   - Stores object at key "Sheldon/media/photos/vacation.jpg"
+   - Sends ObjectCreated event to SQS
+
+6. SQS → Lambda (Event Processor):
+   - Parses S3 key → user_id="Sheldon", file_path="media/photos/vacation.jpg"
+   - Fetches S3 metadata + head bytes
+   - Extracts EXIF, dimensions, GPS
+   - Creates FILE item in DynamoDB
+   - Creates VIEW_LINK for Sheldon (owner)
+   - Creates folder markers: "media/", "media/photos/"
+   - Queries PREFIX grants (none exist)
+
+7. User: GET /storage/Sheldon/media/photos/vacation.jpg
+   - API returns file metadata + signed download URL
+   - Upload complete!
+```
+
+#### **5.7.2. Download Flow**
+
+```
+1. User: GET /storage/Sheldon/media/photos/vacation.jpg
+   Headers: { "Authorization": "Bearer <JWT>" }
+
+2. API Lambda:
+   - Validates JWT → user_id = "Sheldon"
+   - Queries VIEW_LINK: PK="USER#Sheldon", SK="VIEWLINK#Sheldon#R102" → EXISTS
+   - Queries FILE item for metadata
+   - Generates signed URL (24-hour expiration)
+   - Returns:
+     {
+       "file_id": "R102",
+       "file_name": "vacation.jpg",
+       "size": 2048576,
+       "signed_url": "https://dev-storage.fromthehart.tech/Sheldon/media/photos/vacation.jpg?Policy=...&Signature=..."
+     }
+
+3. User: GET https://dev-storage.fromthehart.tech/Sheldon/media/photos/vacation.jpg?Policy=...&Signature=...
+
+4. CloudFront:
+   - Verifies signature
+   - Checks expiration
+   - Forwards to S3 via OAC
+
+5. S3:
+   - Returns file bytes
+   - CloudFront streams to user
+   - Download complete!
+```
+
+#### **5.7.3. Delete Flow**
+
+```
+1. User: DELETE /storage/Sheldon/media/photos/vacation.jpg
+   Headers: { "Authorization": "Bearer <JWT>" }
+
+2. API Lambda:
+   - Validates JWT → user_id = "Sheldon"
+   - Queries VIEW_LINK → EXISTS
+   - Verifies user is owner (OwnerID="Sheldon")
+   - Generates signed URL (5-minute expiration)
+   - Performs DELETE request to CloudFront
+
+3. CloudFront:
+   - Verifies signature
+   - Forwards DELETE to S3 via OAC
+
+4. S3:
+   - Deletes object
+   - Sends ObjectRemoved event to SQS
+
+5. SQS → Lambda (Event Processor):
+   - Parses S3 key
+   - Deletes FILE item from DynamoDB
+   - Deletes all VIEW_LINKs (Sheldon's owner VIEW_LINK + any recipient VIEW_LINKs)
+   - Deletes FILE grants (if any)
+   - Folder markers persist (other files may use them)
+
+6. API Lambda:
+   - Returns: { "success": true }
+   - Delete complete!
+```
+
+## **6. Performance Characteristics and Cost Analysis**
 
 ### **5.1. Read Performance**
 
@@ -2946,12 +3924,12 @@ The timestamp-first sort key (`TYPE#FILE#<Timestamp>#<MediaType>#<ResourceID>`) 
 
 ### **5.2. Write Performance**
 
-| Operation        | Strategy           | Latency | WCU Cost | Notes                                                          |
-| ---------------- | ------------------ | ------- | -------- | -------------------------------------------------------------- |
-| **Upload file**  | Put FILE item      | 5-10ms  | 1 WCU    | + VIEW_LINK creation via S3 event processor (owner + all recipients) |
-| **Create grant** | Put SHARE_GRANT    | 10-30s  | Variable WCU | Synchronous VIEW_LINK creation for all existing files (batched) |
-| **Revoke grant** | Delete SHARE_GRANT | 10-30s  | Variable WCU | Synchronous VIEW_LINK deletion (batched)                      |
-| **Delete file**  | Delete FILE item   | 5-10ms  | 1 WCU    | + VIEW_LINK cleanup via S3 event processor                     |
+| Operation        | Strategy           | Latency | WCU Cost     | Notes                                                                |
+| ---------------- | ------------------ | ------- | ------------ | -------------------------------------------------------------------- |
+| **Upload file**  | Put FILE item      | 5-10ms  | 1 WCU        | + VIEW_LINK creation via S3 event processor (owner + all recipients) |
+| **Create grant** | Put SHARE_GRANT    | 10-30s  | Variable WCU | Synchronous VIEW_LINK creation for all existing files (batched)      |
+| **Revoke grant** | Delete SHARE_GRANT | 10-30s  | Variable WCU | Synchronous VIEW_LINK deletion (batched)                             |
+| **Delete file**  | Delete FILE item   | 5-10ms  | 1 WCU        | + VIEW_LINK cleanup via S3 event processor                           |
 
 **Write Amplification:**
 
