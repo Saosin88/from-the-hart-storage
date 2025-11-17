@@ -109,6 +109,11 @@ This is the canonical record for a file, stored on the **Owner's** partition. It
 
 Tracks permissions granted by an owner to a recipient for either a **folder prefix** or an **individual file**. SHARE_GRANT items support two grant types to handle different sharing scenarios while maintaining a unified table structure. All grants are stored on the **Owner's** partition and projected onto GSI 1 to power the "Shared With Me" view.
 
+**CRITICAL: SHARE_GRANT items are ONLY created and deleted via API operations. S3 event processing NEVER touches SHARE_GRANT items.** This separation of concerns ensures:
+- S3 events manage file lifecycle (FILE items, VIEW_LINKs)
+- API operations manage sharing lifecycle (SHARE_GRANT items, VIEW_LINKs for recipients)
+- Folder structure (folder marker VIEW_LINKs) persists independent of file contents
+
 #### **2.2.1. PREFIX Grant (Folder-Level Access)**
 
 A PREFIX grant provides access to ALL files matching a specific folder prefix, including nested sub-directories. This is the most common grant type for sharing entire folders or folder trees.
@@ -191,9 +196,19 @@ A denormalized pointer created for every file and folder a user can view. VIEW_L
 
 **Creation Strategy:** VIEW_LINKs are created **automatically** whenever:
 
-- A FILE is uploaded to S3 (S3 event processor creates file VIEW_LINKs + ancestor folder markers for the owner + all matching grants)
-- A PREFIX SHARE_GRANT is created (API creates VIEW_LINKs synchronously for all matching files/folders)
-- A FILE SHARE_GRANT is created (API creates a single VIEW_LINK synchronously for the specific file)
+- **A FILE is uploaded to S3:** S3 event processor creates:
+  - FILE item (canonical record)
+  - File VIEW_LINKs for owner (with `GrantID: "OWNER"`)
+  - File VIEW_LINKs for all recipients with matching PREFIX grants
+  - Folder marker VIEW_LINKs for all ancestor folders (for owner and recipients)
+  - **NOTE:** S3 events NEVER create SHARE_GRANT items
+- **A PREFIX SHARE_GRANT is created via API:** API synchronously creates:
+  - SHARE_GRANT item
+  - VIEW_LINKs for all existing files matching the prefix
+  - Folder marker VIEW_LINKs for all ancestor folders
+- **A FILE SHARE_GRANT is created via API:** API synchronously creates:
+  - SHARE_GRANT item
+  - Single VIEW_LINK for the specific file (no folder markers)
 
 This means owners always browse their files through VIEW_LINKs, just like recipients do, ensuring a single, consistent code path for all folder operations. Recipients with FILE grants see individual files in their file list without parent folder context, while recipients with PREFIX grants can browse the full folder tree.
 
@@ -329,6 +344,102 @@ If the primary use case were "browse photos only" or "filter by media type frequ
 ✅ **Efficient:** No filter expressions needed, native DynamoDB sorting  
 ✅ **Scalable:** Works for unlimited folder depth  
 ✅ **Consistent Permissions:** Folders inherit ownership and grant semantics from files
+
+### **2.5. VIEW_LINK Lifecycle Management**
+
+VIEW_LINKs are automatically maintained to reflect current access permissions. Understanding their lifecycle is critical for implementing the system correctly.
+
+#### **2.5.1. Creation Triggers**
+
+**1. S3 ObjectCreated Event:**
+- Creates FILE item
+- Creates file VIEW_LINK for owner (`GrantID: "OWNER"`)
+- Creates folder marker VIEW_LINKs for all ancestor folders (for owner)
+- Queries for matching PREFIX grants
+- Creates file VIEW_LINKs for all recipients with matching grants
+- Creates folder marker VIEW_LINKs for recipients (for each ancestor folder)
+- **Does NOT create or modify SHARE_GRANT items**
+
+**2. API Creates PREFIX Grant:**
+- Creates SHARE_GRANT item
+- Queries all files under the prefix
+- Creates file VIEW_LINKs for recipient (for all existing files)
+- Creates folder marker VIEW_LINKs for recipient (for all ancestor folders)
+
+**3. API Creates FILE Grant:**
+- Creates SHARE_GRANT item
+- Creates single file VIEW_LINK for recipient
+- **Does NOT create folder marker VIEW_LINKs** (file-only access)
+
+#### **2.5.2. Deletion Triggers**
+
+**1. S3 ObjectRemoved Event:**
+- Deletes FILE item
+- Deletes file VIEW_LINKs for all users (owner + recipients)
+- Deletes FILE SHARE_GRANTs (if any exist for this specific file)
+- **Does NOT delete PREFIX SHARE_GRANTs** (folder-level grants persist)
+- **Does NOT delete folder marker VIEW_LINKs** (folders persist even when empty)
+
+**2. API Deletes PREFIX Grant (Revoke Share):**
+- Deletes SHARE_GRANT item
+- Deletes all file VIEW_LINKs for recipient under that prefix
+- Deletes all folder marker VIEW_LINKs for recipient under that prefix
+- **Does NOT affect owner's VIEW_LINKs** (owner retains access)
+
+**3. API Deletes FILE Grant:**
+- Deletes SHARE_GRANT item
+- Deletes single file VIEW_LINK for recipient
+
+**4. API Deletes Folder (DELETE /{path}/):**
+- Validates folder is empty (no files or subfolders)
+- Deletes PREFIX SHARE_GRANTs for this exact folder path
+- Deletes folder marker VIEW_LINKs for all users (owner + recipients)
+- **Does NOT delete FILE items** (folder must be empty first)
+
+#### **2.5.3. Persistence Behavior**
+
+- ✅ **Folder markers persist** when all files are deleted (S3 events don't touch them)
+- ✅ **PREFIX grants persist** when all files are deleted (enables automatic sharing of new uploads)
+- ✅ **Empty folders remain browsable** until explicitly deleted via API
+- ✅ **New file uploads automatically create VIEW_LINKs** for existing PREFIX grants
+- ❌ **FILE grants are deleted** when the file is deleted from S3
+
+**Example: File Deletion Preserves Folder Structure**
+
+```
+1. Sheldon shares "media/photos/" with Justin (PREFIX grant created)
+2. Sheldon uploads 100 photos → Justin sees all 100 photos
+3. Sheldon deletes all 100 photos via S3:
+   - FILE items deleted
+   - File VIEW_LINKs deleted (for Sheldon and Justin)
+   - PREFIX grant "media/photos/" REMAINS
+   - Folder markers "media/" and "media/photos/" REMAIN
+4. Justin browses "media/photos/" → sees empty folder (no error)
+5. Sheldon uploads new photo to "media/photos/vacation.jpg":
+   - FILE item created
+   - File VIEW_LINKs created (for Sheldon and Justin automatically)
+6. Justin immediately sees the new photo (no need to re-share)
+```
+
+#### **2.5.4. Design Rationale**
+
+Folders are **logical prefixes** that represent the structure of the file system, not physical entities tied to file existence. This S3-style behavior provides:
+- ✅ Persistent folder structure independent of file contents
+- ✅ Automatic sharing of new uploads to previously shared folders
+- ✅ No need to recreate grants after deleting/re-uploading files
+- ✅ Matches user expectations from S3, Google Drive, Dropbox
+
+#### **2.5.5. Key Architectural Distinctions**
+
+| Operation | Entry Point | What It Touches | SHARE_GRANTs Affected? |
+|-----------|-------------|-----------------|------------------------|
+| **File Upload** | S3 → SQS → Lambda | FILE, VIEW_LINKs | ❌ Never |
+| **File Delete** | S3 → SQS → Lambda | FILE, file VIEW_LINKs, FILE grants | ❌ PREFIX grants unaffected |
+| **Create Share** | API → Lambda | SHARE_GRANT, VIEW_LINKs | ✅ Creates SHARE_GRANT |
+| **Revoke Share** | API → Lambda | SHARE_GRANT, recipient VIEW_LINKs | ✅ Deletes SHARE_GRANT |
+| **Delete Folder** | API → Lambda | PREFIX grants, folder markers | ✅ Deletes PREFIX grants |
+
+**Critical Principle:** S3 events handle **file lifecycle**, API operations handle **sharing lifecycle**. This separation of concerns prevents confusion and ensures correct behavior.
 
 ## **3. Access Patterns and Query Details (Use Cases)**
 
@@ -1250,6 +1361,9 @@ async fn handle_s3_object_created(
     // Detect media type from extension
     let media_type = detect_media_type(file_name);
 
+    // CRITICAL: S3 events ONLY manage FILE items and VIEW_LINKs
+    // NEVER create, update, or delete SHARE_GRANT items
+
     // Create FILE item
     let file_item = hashmap! {
         "PK" => AttributeValue::S(format!("USER#{}", owner_id)),
@@ -1392,6 +1506,12 @@ async fn handle_s3_object_removed(
         .key("SK", AttributeValue::S(format!("FILE#{}", file_path)))
         .send()
         .await?;
+
+    // IMPORTANT: What we DON'T delete:
+    // ❌ PREFIX SHARE_GRANTs - folder-level permissions persist
+    // ❌ Folder marker VIEW_LINKs - folder structure persists
+    // This enables "ghost folder" behavior where shared folders appear
+    // empty until new files are uploaded (which automatically create VIEW_LINKs)
 
     Ok(())
 }
@@ -1547,6 +1667,192 @@ async fn delete_view_links_batch(
     }
 
     Ok(())
+}
+
+// Helper function: Ensure all ancestor folder markers exist
+// This is called for EVERY file upload to maintain folder hierarchy
+async fn ensure_folder_hierarchy(
+    client: &DynamoDbClient,
+    owner_id: &str,
+    file_path: &str
+) -> Result<()> {
+    let folder_prefix = calculate_folder_prefix(file_path);
+    
+    if folder_prefix.is_empty() {
+        return Ok(()); // Root-level file, no folders needed
+    }
+
+    // Get all ancestor paths
+    // e.g., "media/photos/2024/vacation/" -> ["media/", "media/photos/", "media/photos/2024/", "media/photos/2024/vacation/"]
+    let ancestor_paths = get_ancestor_folder_paths(&folder_prefix);
+    
+    // Find all PREFIX grants that cover any ancestor folder
+    let prefix_grants = find_all_matching_prefix_grants(
+        client,
+        owner_id,
+        &ancestor_paths
+    ).await?;
+    
+    // For each ancestor folder path
+    for ancestor_path in ancestor_paths {
+        // Create folder marker for owner (if doesn't exist)
+        create_folder_marker_if_not_exists(
+            client,
+            owner_id,
+            owner_id,
+            &ancestor_path,
+            "OWNER"
+        ).await?;
+        
+        // Create folder markers for all recipients with PREFIX grants covering this path
+        for grant in &prefix_grants {
+            if ancestor_path.starts_with(&grant.prefix) {
+                create_folder_marker_if_not_exists(
+                    client,
+                    &grant.recipient_id,
+                    owner_id,
+                    &ancestor_path,
+                    &grant.grant_id
+                ).await?;
+            }
+        }
+    }
+    
+    Ok(())
+}
+
+// Helper function: Get all ancestor folder paths from a folder prefix
+fn get_ancestor_folder_paths(folder_prefix: &str) -> Vec<String> {
+    if folder_prefix.is_empty() {
+        return vec![];
+    }
+    
+    let parts: Vec<&str> = folder_prefix
+        .trim_end_matches('/')
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
+    
+    let mut ancestors = Vec::new();
+    let mut current_path = String::new();
+    
+    for part in parts {
+        if !current_path.is_empty() {
+            current_path.push('/');
+        }
+        current_path.push_str(part);
+        ancestors.push(format!("{}/", current_path));
+    }
+    
+    ancestors
+}
+
+// Helper function: Create folder marker with conditional put (idempotent)
+async fn create_folder_marker_if_not_exists(
+    client: &DynamoDbClient,
+    viewer_id: &str,
+    owner_id: &str,
+    folder_path: &str,
+    grant_id: &str
+) -> Result<()> {
+    let folder_name = folder_path
+        .trim_end_matches('/')
+        .split('/')
+        .last()
+        .unwrap_or("") + "/";
+    
+    let parent_prefix = if folder_path.matches('/').count() > 1 {
+        let parts: Vec<&str> = folder_path
+            .trim_end_matches('/')
+            .split('/')
+            .collect();
+        parts[..parts.len()-1].join("/") + "/"
+    } else {
+        String::new()
+    };
+    
+    let marker = hashmap! {
+        "PK" => AttributeValue::S(format!("USER#{}", viewer_id)),
+        "SK" => AttributeValue::S(format!("VIEWLINK#{}#FOLDER#{}", owner_id, folder_path)),
+        "ItemType" => AttributeValue::S("VIEW_LINK".to_string()),
+        "FileID" => AttributeValue::S(format!("FOLDER#{}", folder_path)),
+        "OwnerID" => AttributeValue::S(owner_id.to_string()),
+        "GrantID" => AttributeValue::S(grant_id.to_string()),
+        "FileName" => AttributeValue::S(folder_name.to_string()),
+        "FolderPrefix" => AttributeValue::S(parent_prefix.clone()),
+        "MediaType" => AttributeValue::S("application/x-directory".to_string()),
+        "CreatedDate" => AttributeValue::N(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis()
+                .to_string()
+        ),
+        "GSI2-PK" => AttributeValue::S(
+            format!("VIEWER#{}#FOLDER#{}", viewer_id, parent_prefix)
+        ),
+        "GSI2-SK" => AttributeValue::S(
+            format!("TYPE#FOLDER#{}#{}", folder_name, owner_id)
+        ),
+    };
+    
+    // Use conditional put to avoid duplicates (idempotent)
+    match client.put_item()
+        .table_name("FileMetadata")
+        .set_item(Some(marker))
+        .condition_expression("attribute_not_exists(PK)")
+        .send()
+        .await
+    {
+        Ok(_) => Ok(()),
+        Err(e) if e.to_string().contains("ConditionalCheckFailedException") => {
+            // Folder marker already exists - this is OK (idempotent)
+            Ok(())
+        },
+        Err(e) => Err(e.into()),
+    }
+}
+
+// Helper function: Find all PREFIX grants that match any of the given folder paths
+async fn find_all_matching_prefix_grants(
+    client: &DynamoDbClient,
+    owner_id: &str,
+    folder_paths: &[String]
+) -> Result<Vec<ShareGrant>> {
+    let mut grants = Vec::new();
+    let mut last_key = None;
+    
+    loop {
+        let result = client.query()
+            .table_name("FileMetadata")
+            .key_condition_expression("PK = :pk AND begins_with(SK, :sk_prefix)")
+            .filter_expression("GrantType = :grant_type")
+            .expression_attribute_values(":pk", AttributeValue::S(format!("USER#{}", owner_id)))
+            .expression_attribute_values(":sk_prefix", AttributeValue::S("GRANT#".to_string()))
+            .expression_attribute_values(":grant_type", AttributeValue::S("PREFIX".to_string()))
+            .set_exclusive_start_key(last_key)
+            .send()
+            .await?;
+        
+        for item in result.items.unwrap_or_default() {
+            let grant = parse_grant(&item)?;
+            
+            // Check if this grant's prefix matches any of the folder paths
+            for folder_path in folder_paths {
+                if folder_path.starts_with(&grant.prefix) {
+                    grants.push(grant.clone());
+                    break;
+                }
+            }
+        }
+        
+        if result.last_evaluated_key.is_none() {
+            break;
+        }
+        last_key = result.last_evaluated_key;
+    }
+    
+    Ok(grants)
 }
 
 // Helper function: Create VIEW_LINK item
@@ -2017,12 +2323,12 @@ Response 403 Forbidden:
 
 **Performance Note:** Revoking PREFIX grants with many files may take 10-30 seconds.
 
-#### **4.2.8. Delete Folder**
+#### **4.2.8. DELETE /{path}/  - Delete Empty Folder**
 
-**Purpose:** Delete an empty folder marker.
+**Purpose:** Delete an empty folder and all associated PREFIX grants. This is a metadata-only operation (no S3 interaction).
 
 ```http
-DELETE /storage/{owner-id}/{folder-path}/
+DELETE /{owner-id}/{folder-path}/
 Authorization: Bearer <jwt-token>
 
 Response 204 No Content
@@ -2030,17 +2336,215 @@ Response 204 No Content
 Response 400 Bad Request:
 {
   "error": "FOLDER_NOT_EMPTY",
-  "message": "Folder contains files or subfolders"
+  "message": "Cannot delete folder. The folder must be empty before deletion. Please delete all files and subfolders first, then try again."
+}
+
+Response 403 Forbidden:
+{
+  "error": "ACCESS_DENIED",
+  "message": "Only the folder owner can delete folders"
+}
+
+Response 404 Not Found:
+{
+  "error": "FOLDER_NOT_FOUND",
+  "message": "Folder does not exist"
 }
 ```
 
 **Implementation:**
 
-1. Extract `user_id` from JWT, verify `user_id == owner-id`
-2. Query GSI2 to check for files/subfolders
-3. If not empty, return 400
-4. Delete folder marker VIEW_LINK
-5. Return 204
+```rust
+async fn delete_folder(
+    client: &DynamoDbClient,
+    user_id: &str,
+    owner_id: &str,
+    folder_path: &str
+) -> Result<Response> {
+    // 1. Verify caller is the owner
+    if user_id != owner_id {
+        return Err(ApiError::Forbidden(
+            "Only the folder owner can delete folders"
+        ));
+    }
+    
+    // 2. Verify folder exists (check for owner's folder marker)
+    let folder_exists = check_folder_marker_exists(
+        client,
+        owner_id,
+        owner_id,
+        folder_path
+    ).await?;
+    
+    if !folder_exists {
+        return Err(ApiError::NotFound("Folder does not exist"));
+    }
+    
+    // 3. Check if folder is empty (no files or subfolders)
+    let has_contents = check_folder_has_contents(
+        client,
+        owner_id,
+        folder_path
+    ).await?;
+    
+    if has_contents {
+        return Err(ApiError::BadRequest(
+            "Cannot delete folder. The folder must be empty before deletion. \
+             Please delete all files and subfolders first, then try again."
+        ));
+    }
+    
+    // 4. Find all PREFIX grants for this exact folder path
+    let prefix_grants = query_prefix_grants_for_exact_folder(
+        client,
+        owner_id,
+        folder_path
+    ).await?;
+    
+    // 5. Delete folder marker VIEW_LINKs for all recipients
+    let mut delete_operations = vec![];
+    
+    // Delete owner's folder marker
+    delete_operations.push((
+        format!("USER#{}", owner_id),
+        format!("VIEWLINK#{}#FOLDER#{}", owner_id, folder_path)
+    ));
+    
+    // Delete recipient folder markers
+    for grant in &prefix_grants {
+        delete_operations.push((
+            format!("USER#{}", grant.recipient_id),
+            format!("VIEWLINK#{}#FOLDER#{}", owner_id, folder_path)
+        ));
+    }
+    
+    // Batch delete VIEW_LINKs
+    for (pk, sk) in delete_operations {
+        client.delete_item()
+            .table_name("FileMetadata")
+            .key("PK", AttributeValue::S(pk))
+            .key("SK", AttributeValue::S(sk))
+            .send()
+            .await?;
+    }
+    
+    // 6. Delete all PREFIX SHARE_GRANTs for this folder
+    for grant in prefix_grants {
+        client.delete_item()
+            .table_name("FileMetadata")
+            .key("PK", AttributeValue::S(format!("USER#{}", owner_id)))
+            .key("SK", AttributeValue::S(format!(
+                "GRANT#{}#{}",
+                grant.recipient_id,
+                grant.grant_id
+            )))
+            .send()
+            .await?;
+    }
+    
+    Ok(Response::NoContent)
+}
+
+// Helper: Check if folder has any contents (files or subfolders)
+async fn check_folder_has_contents(
+    client: &DynamoDbClient,
+    owner_id: &str,
+    folder_path: &str
+) -> Result<bool> {
+    // Query GSI2 for owner to see if folder has any children
+    let result = client.query()
+        .table_name("FileMetadata")
+        .index_name("MergedFolderViewIndex")
+        .key_condition_expression("GSI2PK = :pk")
+        .expression_attribute_values(
+            ":pk",
+            AttributeValue::S(format!(
+                "VIEWER#{}#FOLDER#{}",
+                owner_id,
+                folder_path
+            ))
+        )
+        .limit(1) // We only need to know if ANY item exists
+        .send()
+        .await?;
+    
+    // If any items found, folder is not empty
+    Ok(result.items.map(|i| !i.is_empty()).unwrap_or(false))
+}
+
+// Helper: Check if folder marker exists
+async fn check_folder_marker_exists(
+    client: &DynamoDbClient,
+    viewer_id: &str,
+    owner_id: &str,
+    folder_path: &str
+) -> Result<bool> {
+    let result = client.get_item()
+        .table_name("FileMetadata")
+        .key("PK", AttributeValue::S(format!("USER#{}", viewer_id)))
+        .key("SK", AttributeValue::S(format!(
+            "VIEWLINK#{}#FOLDER#{}",
+            owner_id,
+            folder_path
+        )))
+        .send()
+        .await?;
+    
+    Ok(result.item.is_some())
+}
+
+// Helper: Query PREFIX grants for exact folder match
+async fn query_prefix_grants_for_exact_folder(
+    client: &DynamoDbClient,
+    owner_id: &str,
+    folder_path: &str
+) -> Result<Vec<ShareGrant>> {
+    let mut grants = Vec::new();
+    let mut last_key = None;
+    
+    loop {
+        let result = client.query()
+            .table_name("FileMetadata")
+            .key_condition_expression("PK = :pk AND begins_with(SK, :sk_prefix)")
+            .filter_expression("GrantType = :grant_type AND Prefix = :folder_path")
+            .expression_attribute_values(":pk", AttributeValue::S(format!("USER#{}", owner_id)))
+            .expression_attribute_values(":sk_prefix", AttributeValue::S("GRANT#".to_string()))
+            .expression_attribute_values(":grant_type", AttributeValue::S("PREFIX".to_string()))
+            .expression_attribute_values(":folder_path", AttributeValue::S(folder_path.to_string()))
+            .set_exclusive_start_key(last_key)
+            .send()
+            .await?;
+        
+        for item in result.items.unwrap_or_default() {
+            grants.push(parse_grant(&item)?);
+        }
+        
+        if result.last_evaluated_key.is_none() {
+            break;
+        }
+        last_key = result.last_evaluated_key;
+    }
+    
+    Ok(grants)
+}
+```
+
+**Key Points:**
+
+- ✅ **RESTful Design:** Uses `DELETE /{path}/` pattern (trailing slash indicates folder)
+- ✅ **Validation:** Checks folder is empty before allowing deletion
+- ✅ **Atomic:** Deletes folder markers AND PREFIX grants together
+- ✅ **Batch Operations:** Uses efficient single-item checks and batch deletes
+- ✅ **Clear Error Messages:** Guides users to delete contents first
+- ✅ **Metadata Only:** No S3 operations (folders are purely logical)
+
+**Important Distinctions:**
+
+| Operation | Entry Point | What It Deletes | S3 Involved? |
+|-----------|-------------|-----------------|---------------|
+| **Delete File** | S3 direct delete → SQS → Lambda | FILE item, file VIEW_LINKs, FILE grants | ✅ Yes |
+| **Delete Folder** | API `DELETE /{path}/` | Folder markers, PREFIX grants | ❌ No (metadata only) |
+| **Revoke Share** | API `DELETE /shares/{grantId}` | SHARE_GRANT, recipient VIEW_LINKs | ❌ No (metadata only) |
 
 **Safety Constraint:** Folders must be empty before deletion. Files must be deleted via S3 (which triggers S3 event processor to clean up DynamoDB).
 
