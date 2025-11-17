@@ -1075,21 +1075,13 @@ async fn batch_write_items(items: Vec<HashMap<String, AttributeValue>>) -> Resul
 **Key Benefits:**
 
 - ✅ Automatic VIEW_LINK maintenance (no manual sync needed)
-- ✅ Automatic folder marker creation for all ancestor levels
+- ✅ Automatic folder marker creation for all ancestor levels, for all users who have access (owner + recipients)
 - ✅ New files immediately visible to recipients
 - ✅ Folder structure automatically derived from file paths
-- ✅ Handles file deletions and updates automatically via streams
-- ✅ Conditional puts prevent duplicate folder markers
-
-**Key Benefits:**
-
-- ✅ Automatic VIEW_LINK maintenance (no manual sync needed)
-- ✅ Automatic folder marker creation for all ancestor levels
-- ✅ New files immediately visible to recipients
-- ✅ Folder structure automatically derived from file paths
-- ✅ Handles file deletions and updates automatically via streams
+- ✅ Handles file deletions and updates automatically via s3 sqs events
 - ✅ Conditional puts prevent duplicate folder markers
 - ✅ Handles both PREFIX and FILE grants automatically
+
 
 ### **Use Case 7: Sheldon shares a single file from a private folder with Justin**
 
