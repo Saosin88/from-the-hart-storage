@@ -866,7 +866,7 @@ sqs_client.send_message()
 
 - **Goal:** When Sheldon uploads `media/photos/2024/vacation/img.jpg`, automatically create:
   1. FILE VIEW_LINKs for all users who have access (owner + recipients)
-  2. Folder marker VIEW_LINKs for each ancestor folder level
+  2. Folder marker VIEW_LINKs for each ancestor folder level, for all users who have access (owner + recipients)
 - **Strategy:** S3 event processor (triggered by S3 ObjectCreated event via SQS) automatically detects the new file and creates all necessary VIEW_LINKs and folder markers.
 
 **Step 1: Sheldon uploads file (creates FILE item)**
