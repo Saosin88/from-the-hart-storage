@@ -7,9 +7,9 @@ use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    logging::init_logging();
     time::init_start_time();
     config::init_config();
+    logging::init_logging();
 
     info!(
         environment = %config::config().environment,
