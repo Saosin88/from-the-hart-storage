@@ -25,4 +25,7 @@ pub enum StorageError {
 
     #[error("Serialization error: {0}")]
     Serialization(String),
+
+    #[error("Invalid Format error: {0}")]
+    InvalidFormat(String),
 }

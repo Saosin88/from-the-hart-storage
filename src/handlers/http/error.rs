@@ -94,6 +94,12 @@ impl From<StorageError> for HttpError {
                 "Failed to serialize data".to_string(),
                 Some(msg),
             ),
+            StorageError::InvalidFormat(msg) => HttpError::new(
+                StatusCode::BAD_REQUEST,
+                "INVALID_FORMAT_ERROR".to_string(),
+                "Invalid format encountered".to_string(),
+                Some(msg),
+            ),
         }
     }
 }
