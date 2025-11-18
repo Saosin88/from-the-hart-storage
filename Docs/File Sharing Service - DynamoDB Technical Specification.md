@@ -38,7 +38,7 @@ All file metadata, sharing permissions, and denormalized links for different vie
 - **Users for Examples:** Sheldon, Leigh, and Justin.
 - **Table Name:** `FileMetadata`
 - **Billing Mode:** Pay-Per-Request (On-Demand), ideal for unpredictable workloads.
-- **Supporting Infrastructure:** S3 bucket with SQS event notifications, Lambda function for S3 event processing, API Gateway + Lambda for RESTful API endpoints.
+- **Supporting Infrastructure:** S3 bucket with SQS event notifications, Lambda function for S3 event processing, custom API Gateway + Lambda for RESTful API endpoints.
 
 ### **1.2. Schema Keys**
 
@@ -81,7 +81,7 @@ This is the canonical record for a file, stored on the **Owner's** partition. It
 
 1. **Upload Flow:** User requests signed URL from API → uploads via CloudFront → CloudFront proxies to S3 → S3 sends ObjectCreated event → Lambda creates FILE item
 2. **Download Flow:** API generates signed URL → user downloads via CloudFront → CloudFront proxies S3 GET request with OAC
-3. **Delete Flow:** API performs DELETE via CloudFront signed URL → S3 sends ObjectRemoved event → Lambda deletes FILE item
+3. **Delete Flow:** API generates signed URL → CloudFront proxies DELETE to S3 → S3 sends ObjectRemoved event → Lambda deletes FILE item
 
 S3 events (ObjectCreated/ObjectRemoved) trigger SQS messages that Lambda processors use to create/update/delete FILE items in DynamoDB. The API never directly creates or modifies FILE items - all FILE item mutations originate from S3 events triggered by CloudFront-proxied operations.
 
@@ -106,11 +106,11 @@ S3 events (ObjectCreated/ObjectRemoved) trigger SQS messages that Lambda process
 
 **Note on S3 Storage:** Physical files are stored in S3 with keys matching the full path (e.g., `Sheldon/media/Project Docs/DSCN0010.jpg`). There are NO folder objects in S3 - folders are purely logical concepts derived from file paths.
 
-**Note on Direct Access:** To retrieve a specific file (for download), query the base table using `PK = USER#<OwnerID>` and `SK = FILE#<FilePath>` to get the S3 key, then generate a CloudFront signed URL for secure access. For create/update/delete operations, users obtain CloudFront signed URLs directly (via API) and perform the operation through CloudFront, which triggers S3 events that update DynamoDB. FILE items in DynamoDB are never directly modified by API operations - they are only created/updated/deleted by S3 event processors.
+**Note on Direct Access:** To retrieve a specific file (for download), query the base table using `PK = USER#<OwnerID>` and `SK = FILE#<FilePath>` to get the S3 key, then generate a CloudFront signed URL for secure access. For create/update/delete operations, users obtain CloudFront signed URL directly (via API) and perform the operation through CloudFront, which triggers S3 events that update DynamoDB. FILE items in DynamoDB are never directly modified by API operations - they are only created/updated/deleted by S3 event processors.
 
 ### **2.2. Item Type: SHARE_GRANT (Access Permission)**
 
-Tracks permissions granted by an owner to a recipient for either a **folder prefix** or an **individual file**. SHARE_GRANT items support two grant types to handle different sharing scenarios while maintaining a unified table structure. All grants are stored on the **Owner's** partition and projected onto GSI 1 to power the "Shared With Me" view.
+Tracks permissions granted by an owner to a recipient for either a **folder prefix** or an **individual file**. SHARE_GRANT items support two grant types to handle different sharing scenarios while maintaining a unified table structure. All grants are stored on the **Owner's** partition and projected onto GSI 1 to power the "Shared With Me" view and share revocations functions.
 
 **CRITICAL: SHARE_GRANT items are ONLY created and deleted via API operations. S3 event processing NEVER touches SHARE_GRANT items.** This separation of concerns ensures:
 
@@ -273,7 +273,7 @@ The FILE VIEW_LINK sort key format `TYPE#FILE#<Timestamp>#<MediaType>#<ResourceI
 
 When multiple users share files into the same folder (e.g., Sheldon, Justin, and Leigh all contributing to `media/`), this design enables:
 
-- **Pure chronological sort** across all 3000 files regardless of media type
+- **Pure chronological sort** across all files regardless of media type
 - **Single query** returns results in perfect date order (newest to oldest, or vice versa)
 - **Native DynamoDB pagination** with `LastEvaluatedKey` works correctly across all contributors
 - **Constant latency** (10-20ms per page) regardless of total items or number of contributors
@@ -320,25 +320,6 @@ let result = client.query()
 - Slightly higher latency (15-30ms vs 10-20ms)
 - Higher RCU cost (2-4 RCU vs 1-2 RCU per page due to extra reads)
 - Still acceptable performance for filtered views (typically less common than chronological browsing)
-
-**🔀 Alternative Design (Not Chosen):**
-
-Placing `MediaType` before `Timestamp` (`TYPE#FILE#<MediaType>#<Timestamp>#<ResourceID>`) would:
-
-- ✅ Enable efficient media type filtering with key conditions
-- ❌ **Break pure chronological sorting** across media types
-- ❌ Files would be grouped by media type first, then sorted by date within each group
-- ❌ Viewing "all files sorted by date" would require client-side re-sorting of multiple query results
-
-**Design Decision Rationale:**
-
-The chosen design (timestamp-first) aligns with the stated requirements:
-
-1. **"3000 files from 3 owners sorted newest to oldest"** - PRIMARY use case ✅
-2. **"50 results per page with cursor pagination"** - Native DynamoDB support ✅
-3. Media type filtering is acceptable as a secondary use case with minor performance trade-off
-
-If the primary use case were "browse photos only" or "filter by media type frequently," the alternative design would be more appropriate. However, for general file browsing where chronological order is paramount (similar to Google Photos or Dropbox timeline views), the timestamp-first design is optimal.
 
 **Benefits of Folder Markers:**
 

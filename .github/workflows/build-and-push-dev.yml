@@ -3,6 +3,8 @@ name: Build and Push Docker Image to ECR
 on:
   push:
     branches: dev
+    paths-ignore:
+      - "Docs/**"
   workflow_dispatch:
 
 jobs:
