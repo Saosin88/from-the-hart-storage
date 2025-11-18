@@ -1,5 +1,6 @@
-use aws_sdk_dynamodb::types::{AttributeValue, PutRequest, WriteRequest};
+use aws_sdk_dynamodb::types::AttributeValue;
 use aws_sdk_dynamodb::Client;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::OnceCell;
 
@@ -23,6 +24,22 @@ pub struct DynamoDbRepository {
 impl DynamoDbRepository {
     pub fn new(client: Arc<Client>, table_name: String) -> Self {
         Self { client, table_name }
+    }
+
+    /// Put a single item into the configured table.
+    /// Returns Ok(()) on success or the underlying AWS SDK error.
+    pub async fn put_item(
+        &self,
+        item: HashMap<String, AttributeValue>,
+    ) -> Result<(), aws_sdk_dynamodb::Error> {
+        self.client
+            .put_item()
+            .table_name(&self.table_name)
+            .set_item(Some(item))
+            .send()
+            .await?;
+
+        Ok(())
     }
 
     /// Convenience async constructor that uses the shared global client.
