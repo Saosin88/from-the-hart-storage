@@ -1,20 +1,19 @@
-use super::metadata::MetadataService;
+use crate::service::metadata::MetadataService;
 use crate::{error::StorageError, repository, service::File, utils::time};
 
-use serde_json;
 use std::sync::LazyLock;
-use tracing::{debug, error, info};
+use tracing::{error, info};
 
 static METADATA_SERVICE: LazyLock<MetadataService> = LazyLock::new(MetadataService::new);
 
-pub async fn process_s3_event_message(mut file: File) -> Result<(), StorageError> {
+pub async fn handle_file_created(mut file: File) -> Result<(), StorageError> {
     let bucket = &file.bucket;
     let key = &file.bucket_key;
 
     info!(
         bucket = %bucket,
         key = %key,
-        "Processing file record"
+        "Processing file"
     );
 
     match repository::s3::get_object_metadata(bucket, key).await {
@@ -66,14 +65,6 @@ pub async fn process_s3_event_message(mut file: File) -> Result<(), StorageError
     METADATA_SERVICE
         .extract_metadata(&head_bytes, &mut file)
         .await;
-
-    serde_json::to_string(&file)
-        .map_err(|e| StorageError::Serialization(format!("Failed to serialize metadata: {}", e)))
-        .map(|json| {
-            info!(metadata = %json, "full_metadata");
-        })?;
-
-    debug!("File processed successfully");
 
     Ok(())
 }

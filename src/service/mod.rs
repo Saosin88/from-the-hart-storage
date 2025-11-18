@@ -2,7 +2,7 @@
 pub mod health;
 
 #[cfg(feature = "sqs")]
-pub mod events;
+pub mod file;
 
 #[cfg(feature = "sqs")]
 pub mod metadata;

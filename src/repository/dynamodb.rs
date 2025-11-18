@@ -1,124 +1,35 @@
-// This is a placeholder repository implementation for DynamoDB data access.
-// In a real implementation, you would:
-// 1. Add aws-sdk-dynamodb to Cargo.toml dependencies
-// 2. Implement the repository trait defined in repository/mod.rs
-// 3. Use dependency injection via AppState
+use aws_sdk_dynamodb::types::{AttributeValue, PutRequest, WriteRequest};
+use aws_sdk_dynamodb::Client;
+use std::sync::Arc;
+use tokio::sync::OnceCell;
 
-// Example commented-out code structure:
+static DDB_CLIENT: OnceCell<Arc<Client>> = OnceCell::const_new();
 
-// use aws_sdk_dynamodb::{Client, Error};
-// use aws_sdk_dynamodb::types::{AttributeValue, PutRequest, WriteRequest};
-// use std::collections::HashMap;
+pub async fn get_dynamodb_client() -> Arc<Client> {
+    DDB_CLIENT
+        .get_or_init(|| async {
+            let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+            Arc::new(Client::new(&config))
+        })
+        .await
+        .clone()
+}
 
-// pub struct DynamoDbRepository {
-//     client: Client,
-//     table_name: String,
-// }
+pub struct DynamoDbRepository {
+    client: Arc<Client>,
+    table_name: String,
+}
 
-// impl DynamoDbRepository {
-//     pub fn new(client: Client, table_name: String) -> Self {
-//         Self {
-//             client,
-//             table_name,
-//         }
-//     }
+impl DynamoDbRepository {
+    pub fn new(client: Arc<Client>, table_name: String) -> Self {
+        Self { client, table_name }
+    }
 
-//     pub async fn get_item(&self, key: &str) -> Result<Option<HashMap<String, AttributeValue>>, Error> {
-//         let result = self
-//             .client
-//             .get_item()
-//             .table_name(&self.table_name)
-//             .key("id", AttributeValue::S(key.to_string()))
-//             .send()
-//             .await?;
-//
-//         Ok(result.item)
-//     }
-
-//     pub async fn put_item(&self, item: HashMap<String, AttributeValue>) -> Result<(), Error> {
-//         self.client
-//             .put_item()
-//             .table_name(&self.table_name)
-//             .set_item(Some(item))
-//             .send()
-//             .await?;
-//
-//         Ok(())
-//     }
-
-//     pub async fn delete_item(&self, key: &str) -> Result<(), Error> {
-//         self.client
-//             .delete_item()
-//             .table_name(&self.table_name)
-//             .key("id", AttributeValue::S(key.to_string()))
-//             .send()
-//             .await?;
-//
-//         Ok(())
-//     }
-
-//     pub async fn query_items(
-//         &self,
-//         index_name: Option<&str>,
-//         key_condition: &str,
-//         expression_values: HashMap<String, AttributeValue>,
-//     ) -> Result<Vec<HashMap<String, AttributeValue>>, Error> {
-//         let mut query = self
-//             .client
-//             .query()
-//             .table_name(&self.table_name)
-//             .key_condition_expression(key_condition)
-//             .set_expression_attribute_values(Some(expression_values));
-//
-//         if let Some(index) = index_name {
-//             query = query.index_name(index);
-//         }
-//
-//         let result = query.send().await?;
-//         Ok(result.items.unwrap_or_default())
-//     }
-
-//     pub async fn scan_items(&self) -> Result<Vec<HashMap<String, AttributeValue>>, Error> {
-//         let result = self
-//             .client
-//             .scan()
-//             .table_name(&self.table_name)
-//             .send()
-//             .await?;
-//
-//         Ok(result.items.unwrap_or_default())
-//     }
-
-//     pub async fn batch_write(
-//         &self,
-//         items: Vec<HashMap<String, AttributeValue>>,
-//     ) -> Result<(), Error> {
-//         let write_requests: Vec<WriteRequest> = items
-//             .into_iter()
-//             .map(|item| {
-//                 WriteRequest::builder()
-//                     .put_request(PutRequest::builder().set_item(Some(item)).build())
-//                     .build()
-//             })
-//             .collect();
-
-//         self.client
-//             .batch_write_item()
-//             .request_items(&self.table_name, write_requests)
-//             .send()
-//             .await?;
-//
-//         Ok(())
-//     }
-// }
-
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//
-//     // Example test structure
-//     // #[tokio::test]
-//     // async fn test_get_item() {
-//     //     // Test implementation
-//     // }
-// }
+    /// Convenience async constructor that uses the shared global client.
+    pub async fn new_with_global(table_name: String) -> Self {
+        Self {
+            client: get_dynamodb_client().await,
+            table_name,
+        }
+    }
+}
