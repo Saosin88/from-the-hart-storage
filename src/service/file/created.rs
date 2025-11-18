@@ -1,9 +1,11 @@
+use crate::service::file::helpers::calculate_folder_prefix;
 use crate::service::metadata::MetadataService;
 use crate::{error::StorageError, repository, service::File, utils::time};
 
+use std::path::Path;
 use std::sync::LazyLock;
 use tracing::{error, info};
-// use uuid::Uuid;
+use uuid::Uuid;
 
 static METADATA_SERVICE: LazyLock<MetadataService> = LazyLock::new(MetadataService::new);
 
@@ -17,18 +19,19 @@ pub async fn handle_file_created(mut file: File) -> Result<(), StorageError> {
         "Processing file"
     );
 
-    let parts: Vec<&str> = key.splitn(2, '/').collect();
+    let (owner, path) = key
+        .split_once('/')
+        .ok_or_else(|| StorageError::InvalidFormat(format!("Invalid S3 key format: {}", key)))?;
 
-    if parts.len() != 2 {
-        return Err(StorageError::InvalidFormat(format!(
-            "Invalid S3 key format: {}",
-            key
-        )));
-    }
-
-    // let owner_id = parts[0];
-    // let file_path = parts[1];
-    // let file_id = Uuid::new_v4().to_string();
+    file.owner_id = owner.to_string();
+    file.file_id = Uuid::new_v4().to_string();
+    file.file_name = Path::new(path)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(path)
+        .to_string();
+    file.file_path = path.to_string();
+    file.folder_prefix = calculate_folder_prefix(path).to_string();
 
     match repository::s3::get_object_metadata(bucket, key).await {
         Ok(response) => {
@@ -55,7 +58,7 @@ pub async fn handle_file_created(mut file: File) -> Result<(), StorageError> {
                 bucket = %bucket,
                 key = %key,
                 error = %e,
-                "Failed to fetch object metadata from S3; continuing without content-type"
+                "Failed to fetch object metadata from S3; continuing without the extra data"
             );
         }
     }

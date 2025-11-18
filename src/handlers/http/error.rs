@@ -70,6 +70,12 @@ impl From<StorageError> for HttpError {
                 "Storage operation failed".to_string(),
                 Some(msg),
             ),
+            StorageError::DynamoDb(msg) => HttpError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DYNAMODB_ERROR".to_string(),
+                "DynamoDB operation failed".to_string(),
+                Some(msg),
+            ),
             StorageError::Metadata(msg) => HttpError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "METADATA_ERROR".to_string(),

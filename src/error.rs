@@ -14,6 +14,9 @@ pub enum StorageError {
     #[error("S3 error: {0}")]
     S3(String),
 
+    #[error("DynamoDB error: {0}")]
+    DynamoDb(String),
+
     #[error("Metadata extraction error: {0}")]
     Metadata(String),
 

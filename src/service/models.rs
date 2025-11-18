@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::Arc;
 
 use crate::utils::time;
@@ -13,9 +14,12 @@ pub struct HealthStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct File {
     pub bucket_key: Arc<str>,
-    pub bucket_prefix: Arc<str>,
     pub bucket: Arc<str>,
-    pub file_name: Arc<str>,
+    pub owner_id: String,
+    pub file_id: String,
+    pub file_name: String,
+    pub file_path: String,
+    pub folder_prefix: String,
     pub created_date: i64,
     pub size_bytes: i64,
     pub content_type: String,
@@ -24,17 +28,15 @@ pub struct File {
 }
 
 impl File {
-    pub fn new(
-        bucket_key: String,
-        bucket_prefix: String,
-        bucket: String,
-        file_name: String,
-    ) -> Self {
+    pub fn new(bucket_key: String, bucket: String) -> Self {
         Self {
             bucket_key: bucket_key.into(),
-            bucket_prefix: bucket_prefix.into(),
+            folder_prefix: String::new(),
             bucket: bucket.into(),
-            file_name: file_name.into(),
+            owner_id: String::new(),
+            file_id: String::new(),
+            file_name: String::new(),
+            file_path: String::new(),
             created_date: time::now_as_unix_millis(),
             size_bytes: 0,
             content_type: String::from("application/octet-stream"),
@@ -52,6 +54,18 @@ pub enum MediaType {
     Audio,
     Document,
     Unknown,
+}
+
+impl fmt::Display for MediaType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            MediaType::Image => write!(f, "Image"),
+            MediaType::Video => write!(f, "Video"),
+            MediaType::Audio => write!(f, "Audio"),
+            MediaType::Document => write!(f, "Document"),
+            MediaType::Unknown => write!(f, "GreUnknownen"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

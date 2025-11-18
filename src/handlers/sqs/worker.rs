@@ -68,15 +68,7 @@ pub async fn handle_sqs_event(event: SqsEvent) -> Result<SqsBatchResponse, Stora
                 }
             };
 
-            let (bucket_prefix, file_name) = if let Some(last_slash) = key.rfind('/') {
-                let prefix = key[..=last_slash].to_string();
-                let name = key[last_slash + 1..].to_string();
-                (prefix, name)
-            } else {
-                (String::from("/"), key.clone())
-            };
-
-            let file = File::new(key, bucket_prefix, bucket.to_string(), file_name);
+            let file = File::new(key, bucket.to_string());
 
             match event {
                 name if name.starts_with("ObjectCreated:") => {
