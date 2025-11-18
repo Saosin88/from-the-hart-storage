@@ -100,3 +100,18 @@ resource "aws_cloudwatch_log_group" "from_the_hart_storage_sqs_worker_log_group"
   name              = "/aws/lambda/${aws_lambda_function.from_the_hart_storage_sqs_worker.function_name}"
   retention_in_days = 1
 }
+
+
+module "dynamodb" {
+  source = "../modules/dynamodb"
+
+  name = "from-the-hart-storage-dev"
+
+  tags = {
+    Domain      = "tech"
+    Project     = "from-the-hart-storage"
+    Environment = "dev"
+    Terraform   = "true"
+  }
+}
+

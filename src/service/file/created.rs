@@ -89,6 +89,15 @@ pub async fn handle_file_created(mut file: File) -> Result<(), StorageError> {
             info!(metadata = %json, "full_metadata");
         })?;
 
+    let dynamo_db_repository =
+        repository::dynamodb::DynamoDbRepository::new("from-the-hart-storage-dev".to_string())
+            .await;
+
+    dynamo_db_repository
+        .put_file(&file)
+        .await
+        .map_err(|e| StorageError::DynamoDb(format!("Failed to put file in DynamoDB: {}", e)))?;
+
     info!("File processed successfully");
 
     Ok(())

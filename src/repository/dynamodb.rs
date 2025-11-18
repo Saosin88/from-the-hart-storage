@@ -6,7 +6,7 @@ use crate::{error::StorageError, service::File};
 
 static DDB_CLIENT: OnceCell<Arc<Client>> = OnceCell::const_new();
 
-pub async fn get_dynamodb_client() -> Arc<Client> {
+async fn get_dynamodb_client() -> Arc<Client> {
     DDB_CLIENT
         .get_or_init(|| async {
             let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
@@ -22,11 +22,7 @@ pub struct DynamoDbRepository {
 }
 
 impl DynamoDbRepository {
-    pub fn new(client: Arc<Client>, table_name: String) -> Self {
-        Self { client, table_name }
-    }
-
-    pub async fn new_with_global(table_name: String) -> Self {
+    pub async fn new(table_name: String) -> Self {
         Self {
             client: get_dynamodb_client().await,
             table_name,
@@ -45,43 +41,63 @@ impl DynamoDbRepository {
             AttributeValue::S(format!("FILE#{}", file.file_path)),
         );
         item.insert(
-            "ItemType".to_string(),
+            "item_type".to_string(),
             AttributeValue::S("FILE".to_string()),
         );
         item.insert(
-            "ResourceID".to_string(),
-            AttributeValue::S(file.file_id.clone()),
-        );
-        item.insert(
-            "OwnerID".to_string(),
+            "owner_id".to_string(),
             AttributeValue::S(file.owner_id.clone()),
         );
         item.insert(
-            "FileName".to_string(),
+            "resource_id".to_string(),
+            AttributeValue::S(file.file_id.clone()),
+        );
+        item.insert(
+            "file_name".to_string(),
             AttributeValue::S(file.file_name.clone()),
         );
         item.insert(
-            "FolderPrefix".to_string(),
+            "file_path".to_string(),
+            AttributeValue::S(file.file_path.clone()),
+        );
+        item.insert(
+            "folder_prefix".to_string(),
             AttributeValue::S(file.folder_prefix.clone()),
-        );
-        item.insert(
-            "S3Key".to_string(),
-            AttributeValue::S(file.bucket_key.to_string()),
-        );
-        item.insert(
-            "Size".to_string(),
-            AttributeValue::N(file.size_bytes.to_string()),
         );
 
         item.insert(
-            "MediaType".to_string(),
+            "media_type".to_string(),
             AttributeValue::S(file.media_type.to_string()),
         );
 
         item.insert(
-            "CreatedDate".to_string(),
+            "content_type".to_string(),
+            AttributeValue::S(file.content_type.to_string()),
+        );
+
+        item.insert(
+            "size_bytes".to_string(),
+            AttributeValue::N(file.size_bytes.to_string()),
+        );
+
+        item.insert(
+            "created_date".to_string(),
             AttributeValue::N(file.created_date.to_string()),
         );
+        item.insert(
+            "bucket_key".to_string(),
+            AttributeValue::S(file.bucket_key.to_string()),
+        );
+        item.insert(
+            "bucket".to_string(),
+            AttributeValue::S(file.bucket.to_string()),
+        );
+
+        if let Some(metadata) = &file.media_metadata {
+            if let Ok(meta_json) = serde_json::to_string(metadata) {
+                item.insert("MediaMetadata".to_string(), AttributeValue::S(meta_json));
+            }
+        }
 
         self.client
             .put_item()
