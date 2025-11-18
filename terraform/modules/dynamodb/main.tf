@@ -4,8 +4,16 @@ resource "aws_dynamodb_table" "table" {
   hash_key     = "PK"
   range_key    = "SK"
 
-  attribute { name = "PK" type = "S" }
-  attribute { name = "SK" type = "S" }
+  attribute {
+    name = "PK"
+    type = "S"
+  }
+
+  attribute {
+    name = "SK"
+    type = "S"
+  }
+
 
   # attribute { name = "GSI1-PK" type = "S" }
   # attribute { name = "GSI1-SK" type = "S" }
