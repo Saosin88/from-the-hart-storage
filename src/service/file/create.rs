@@ -1,5 +1,6 @@
 use crate::service::file::helpers::calculate_folder_prefix;
 use crate::service::metadata::MetadataService;
+use crate::service::models::ViewLink;
 use crate::utils::string;
 use crate::{error::StorageError, repository, service::File, utils::time};
 
@@ -98,6 +99,25 @@ pub async fn handle_file_created(mut file: File) -> Result<(), StorageError> {
         .put_file(&file)
         .await
         .map_err(|e| StorageError::DynamoDb(format!("Failed to put file in DynamoDB: {}", e)))?;
+
+    let view_link = ViewLink {
+        viewer_id: file.owner_id.clone(),
+        resource_id: file.file_id.clone(),
+        owner_id: file.owner_id.clone(),
+        grant_id: "OWNER".to_string(),
+        created_date: file.created_date,
+        folder_prefix: file.folder_prefix.clone(),
+        file_name: file.file_name.clone(),
+        media_type: file.media_type.to_string(),
+        size_bytes: file.size_bytes,
+    };
+
+    dynamo_db_repository
+        .put_view_link(&view_link)
+        .await
+        .map_err(|e| {
+            StorageError::DynamoDb(format!("Failed to put view link in DynamoDB: {}", e))
+        })?;
 
     info!("File processed successfully");
 

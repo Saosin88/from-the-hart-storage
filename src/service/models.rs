@@ -98,3 +98,28 @@ impl GpsCoordinates {
         }
     }
 }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ViewLink {
+    pub viewer_id: String,
+    pub resource_id: String,
+    pub owner_id: String,
+    pub grant_id: String,
+    pub created_date: i64,
+    pub folder_prefix: String,
+    pub file_name: String,
+    pub media_type: String,
+    pub size_bytes: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShareGrant {
+    pub item_type: Option<String>,
+    pub grant_id: String,
+    pub owner_id: String,
+    pub recipient_id: String,
+    pub grant_type: Option<String>,
+    pub prefix: Option<String>,
+    pub resource_id: Option<String>,
+    pub file_path: Option<String>,
+    pub created_date: Option<i64>,
+}

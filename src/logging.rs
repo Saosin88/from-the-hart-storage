@@ -18,7 +18,7 @@ pub fn init_logging() {
         .with(tracing_error::ErrorLayer::default())
         .init();
 
-    if rust_log == "info" && std::env::var("RUST_LOG").is_ok() == false {
+    if rust_log == "info" && std::env::var("RUST_LOG").is_err() {
         tracing::warn!("RUST_LOG environment variable not set, defaulting to 'info'");
     }
 

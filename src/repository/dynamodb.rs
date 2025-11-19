@@ -2,7 +2,11 @@ use aws_sdk_dynamodb::{types::AttributeValue, Client};
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::OnceCell;
 
-use crate::{config::config, error::StorageError, service::File};
+use crate::{
+    config::config,
+    error::StorageError,
+    service::{models::ViewLink, File},
+};
 
 static DDB_CLIENT: OnceCell<Arc<Client>> = OnceCell::const_new();
 
@@ -111,6 +115,75 @@ impl DynamoDbRepository {
             .await
             .map_err(|e| {
                 StorageError::DynamoDb(format!("Failed to put file item into DynamoDB: {}", e))
+            })?;
+
+        Ok(())
+    }
+
+    pub async fn put_view_link(&self, view_link: &ViewLink) -> Result<(), StorageError> {
+        let mut item: HashMap<String, AttributeValue> = HashMap::new();
+
+        item.insert(
+            "PK".to_string(),
+            AttributeValue::S(format!("USER#{}", view_link.viewer_id)),
+        );
+
+        let sk = format!("VIEWLINK#{}#{}", view_link.owner_id, view_link.resource_id);
+        item.insert("SK".to_string(), AttributeValue::S(sk));
+
+        item.insert(
+            "resource_id".to_string(),
+            AttributeValue::S(view_link.resource_id.clone()),
+        );
+        item.insert(
+            "owner_id".to_string(),
+            AttributeValue::S(view_link.owner_id.clone()),
+        );
+        item.insert(
+            "grant_id".to_string(),
+            AttributeValue::S(view_link.grant_id.clone()),
+        );
+        item.insert(
+            "created_date".to_string(),
+            AttributeValue::N(view_link.created_date.to_string()),
+        );
+        item.insert(
+            "folder_prefix".to_string(),
+            AttributeValue::S(view_link.folder_prefix.clone()),
+        );
+        item.insert(
+            "file_name".to_string(),
+            AttributeValue::S(view_link.file_name.clone()),
+        );
+        item.insert(
+            "media_type".to_string(),
+            AttributeValue::S(view_link.media_type.clone()),
+        );
+        item.insert(
+            "size_bytes".to_string(),
+            AttributeValue::N(view_link.size_bytes.to_string()),
+        );
+
+        let gsi2_pk = format!(
+            "VIEWER#{}#FOLDER#{}",
+            view_link.viewer_id, view_link.folder_prefix
+        );
+        item.insert("GSI2-PK".to_string(), AttributeValue::S(gsi2_pk));
+
+        let gsi2_sk = format!(
+            "TYPE#FILE#{}#{}#{}",
+            view_link.created_date, view_link.media_type, view_link.resource_id
+        );
+        item.insert("GSI2-SK".to_string(), AttributeValue::S(gsi2_sk));
+
+        self.client
+            .put_item()
+            .table_name(&self.table_name)
+            .set_item(Some(item))
+            .send()
+            .await
+            .map_err(|e| {
+                StorageError::DynamoDb(format!("Failed to put view link into DynamoDB: {}", e))
             })?;
 
         Ok(())
