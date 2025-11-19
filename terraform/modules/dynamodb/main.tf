@@ -15,11 +15,23 @@ resource "aws_dynamodb_table" "table" {
   }
 
 
-  # attribute { name = "GSI1-PK" type = "S" }
-  # attribute { name = "GSI1-SK" type = "S" }
+  # attribute {
+  #   name = "GSI1-PK"
+  #   type = "S"
+  # }
+  # attribute {
+  #   name = "GSI1-SK"
+  #   type = "S"
+  # }
 
-  attribute { name = "GSI2-PK" type = "S" }
-  attribute { name = "GSI2-SK" type = "S" }
+  attribute {
+    name = "GSI2-PK"
+    type = "S"
+  }
+  attribute {
+    name = "GSI2-SK"
+    type = "S"
+  }
 
   # global_secondary_index {
   #   name            = "grant-index"
