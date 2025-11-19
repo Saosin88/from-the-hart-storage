@@ -8,7 +8,7 @@ use tracing::{info, warn};
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     time::init_start_time();
     logging::init_logging();
-    config::init_config();
+    config::init_config()?;
 
     let app = routes::configure_routes().layer(TraceLayer::new_for_http());
 

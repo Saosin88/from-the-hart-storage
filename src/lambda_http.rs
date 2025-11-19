@@ -8,8 +8,9 @@ use tracing::info;
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     time::init_start_time();
-    config::init_config();
     logging::init_logging();
+
+    config::init_config().map_err(|e| Error::from(format!("Failed to load config: {}", e)))?;
 
     info!(
         environment = %config::config().environment,

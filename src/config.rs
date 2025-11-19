@@ -1,19 +1,19 @@
 use config::{Config, ConfigError, Environment};
 use serde::Deserialize;
-use std::sync::LazyLock;
+use std::sync::OnceLock;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct DynamoDB {
     pub table: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct AppConfig {
     pub environment: String,
     #[serde(default)]
@@ -25,7 +25,7 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
-    fn load() -> Result<Self, ConfigError> {
+    pub fn load() -> Result<Self, ConfigError> {
         dotenvy::dotenv().ok();
 
         let builder = Config::builder().add_source(Environment::with_prefix("APP").separator("_"));
@@ -35,15 +35,22 @@ impl AppConfig {
     }
 }
 
-static CONFIG: LazyLock<AppConfig> = LazyLock::new(|| {
-    AppConfig::load().expect("Failed to load configuration. Check environment variables.")
-});
+static CONFIG: OnceLock<AppConfig> = OnceLock::new();
 
-pub fn init_config() {
-    LazyLock::force(&CONFIG);
-    tracing::info!("Loaded config: {:#?}", &*CONFIG);
+/// Initialize config - must be called after logging is set up
+pub fn init_config() -> Result<(), ConfigError> {
+    let cfg = AppConfig::load()?;
+    
+    // Safe to use tracing here since caller ensures logging is initialized
+    tracing::info!("Loaded config: {:#?}", cfg);
+    
+    CONFIG.set(cfg).map_err(|_| {
+        ConfigError::Message("Config already initialized".to_string())
+    })?;
+    
+    Ok(())
 }
 
 pub fn config() -> &'static AppConfig {
-    &CONFIG
+    CONFIG.get().expect("Config not initialized - call init_config() first")
 }
