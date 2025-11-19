@@ -1,11 +1,11 @@
 use crate::service::file::helpers::calculate_folder_prefix;
 use crate::service::metadata::MetadataService;
+use crate::utils::string;
 use crate::{error::StorageError, repository, service::File, utils::time};
 
 use std::path::Path;
 use std::sync::LazyLock;
 use tracing::{error, info};
-use uuid::Uuid;
 
 static METADATA_SERVICE: LazyLock<MetadataService> = LazyLock::new(MetadataService::new);
 
@@ -24,7 +24,7 @@ pub async fn handle_file_created(mut file: File) -> Result<(), StorageError> {
         .ok_or_else(|| StorageError::InvalidFormat(format!("Invalid S3 key format: {}", key)))?;
 
     file.owner_id = owner.to_string();
-    file.file_id = Uuid::new_v4().to_string();
+    file.file_id = string::sha256_hash(&format!("{}/{}", bucket, key));
     file.file_name = Path::new(path)
         .file_name()
         .and_then(|s| s.to_str())
@@ -92,9 +92,7 @@ pub async fn handle_file_created(mut file: File) -> Result<(), StorageError> {
             info!(metadata = %json, "full_metadata");
         })?;
 
-    let dynamo_db_repository =
-        repository::dynamodb::DynamoDbRepository::new()
-            .await;
+    let dynamo_db_repository = repository::dynamodb::DynamoDbRepository::new().await;
 
     dynamo_db_repository
         .put_file(&file)

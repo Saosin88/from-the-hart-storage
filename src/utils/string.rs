@@ -1,4 +1,5 @@
 use crate::error::StorageError;
+use sha2::{Digest, Sha256};
 
 pub fn url_decode(s: &str) -> Result<String, StorageError> {
     urlencoding::decode(s)
@@ -18,4 +19,10 @@ pub fn clean_value(raw: &str) -> String {
     }
 
     v.trim().to_string()
+}
+
+pub fn sha256_hash(input: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(input.as_bytes());
+    format!("{:x}", hasher.finalize())
 }
