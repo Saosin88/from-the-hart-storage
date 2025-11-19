@@ -20,85 +20,77 @@ module "from_the_hart_storage_notifications" {
   name_prefix = "from-the-hart-storage-dev"
 }
 
-variable "lambda_image_uri_http" {
-  description = "ECR image URI for the HTTP Lambda function"
-  type        = string
-}
+module "http_worker" {
+  source = "../modules/lambda_and_logs"
 
-variable "lambda_image_uri_sqs" {
-  description = "ECR image URI for the SQS Lambda function"
-  type        = string
-}
+  function_name        = "from-the-hart-storage-http-worker-dev"
+  image_uri            = var.lambda_image_uri_http
+  memory_size          = 256
+  timeout              = 10
+  role_arn             = data.terraform_remote_state.shared.outputs.from_the_hart_lambda_role_arn
+  create_function_url  = true
+  log_retention_days   = 1
 
-resource "aws_lambda_function" "from_the_hart_storage_http_worker" {
-  function_name = "from-the-hart-storage-http-worker-dev"
-  package_type  = "Image"
-  image_uri     = var.lambda_image_uri_http
-  memory_size   = 256
-  timeout       = 10
-  role          = data.terraform_remote_state.shared.outputs.from_the_hart_lambda_role_arn
-
-  architectures = ["x86_64"]
-
-  environment {
-    variables = {
-      APP_ENVIRONMENT = "dev"
-      RUST_LOG        = "INFO"
-      APP_TIMEZONE    = "Africa/Johannesburg"
-    }
+  environment_variables = {
+    APP_ENVIRONMENT     = "dev"
+    RUST_LOG            = "INFO"
+    APP_TIMEZONE        = "Africa/Johannesburg"
+    APP_DYNAMODB_TABLE  = module.dynamodb.table_name
   }
 }
 
-resource "aws_lambda_function_url" "from_the_hart_storage_function_url" {
-  function_name      = aws_lambda_function.from_the_hart_storage_http_worker.function_name
-  authorization_type = "AWS_IAM"
-  depends_on = [
-    aws_lambda_function.from_the_hart_storage_http_worker,
-  ]
-}
+module "sqs_worker" {
+  source = "../modules/lambda_and_logs"
 
-resource "aws_cloudwatch_log_group" "from_the_hart_storage_log_group" {
-  name = "/aws/lambda/${aws_lambda_function.from_the_hart_storage_http_worker.function_name}"
+  function_name      = "from-the-hart-storage-sqs-worker-dev"
+  image_uri          = var.lambda_image_uri_sqs
+  memory_size        = 512
+  timeout            = 300
+  role_arn           = data.terraform_remote_state.shared.outputs.from_the_hart_lambda_role_arn
+  log_retention_days = 1
 
-  retention_in_days = 1
-}
-
-resource "aws_lambda_function" "from_the_hart_storage_sqs_worker" {
-  function_name = "from-the-hart-storage-sqs-worker-dev"
-  package_type  = "Image"
-  image_uri     = var.lambda_image_uri_sqs
-  memory_size   = 512
-  timeout       = 300
-  role          = data.terraform_remote_state.shared.outputs.from_the_hart_lambda_role_arn
-
-  architectures = ["x86_64"]
-
-  environment {
-    variables = {
-      APP_ENVIRONMENT = "dev"
-      RUST_LOG        = "INFO"
-      APP_TIMEZONE    = "Africa/Johannesburg"
-    }
+  environment_variables = {
+    APP_ENVIRONMENT    = "dev"
+    RUST_LOG           = "INFO"
+    APP_TIMEZONE       = "Africa/Johannesburg"
+    APP_DYNAMODB_TABLE = module.dynamodb.table_name
   }
+
+  event_source_arn              = module.from_the_hart_storage_notifications.queue_arn
+  event_source_batch_size       = 10
+  event_source_batching_window  = 30
+  event_source_max_concurrency  = 2
 }
 
-resource "aws_lambda_event_source_mapping" "sqs_to_lambda" {
-  event_source_arn = module.from_the_hart_storage_notifications.queue_arn
-  function_name    = aws_lambda_function.from_the_hart_storage_sqs_worker.arn
-
-  batch_size                         = 10
-  maximum_batching_window_in_seconds = 30
-
-  function_response_types = ["ReportBatchItemFailures"]
-
-  scaling_config {
-    maximum_concurrency = 2
-  }
+# Moved blocks to preserve existing resources
+moved {
+  from = aws_lambda_function.from_the_hart_storage_http_worker
+  to   = module.http_worker.aws_lambda_function.this
 }
 
-resource "aws_cloudwatch_log_group" "from_the_hart_storage_sqs_worker_log_group" {
-  name              = "/aws/lambda/${aws_lambda_function.from_the_hart_storage_sqs_worker.function_name}"
-  retention_in_days = 1
+moved {
+  from = aws_lambda_function_url.from_the_hart_storage_function_url
+  to   = module.http_worker.aws_lambda_function_url.this[0]
+}
+
+moved {
+  from = aws_cloudwatch_log_group.from_the_hart_storage_log_group
+  to   = module.http_worker.aws_cloudwatch_log_group.this
+}
+
+moved {
+  from = aws_lambda_function.from_the_hart_storage_sqs_worker
+  to   = module.sqs_worker.aws_lambda_function.this
+}
+
+moved {
+  from = aws_lambda_event_source_mapping.sqs_to_lambda
+  to   = module.sqs_worker.aws_lambda_event_source_mapping.this[0]
+}
+
+moved {
+  from = aws_cloudwatch_log_group.from_the_hart_storage_sqs_worker_log_group
+  to   = module.sqs_worker.aws_cloudwatch_log_group.this
 }
 
 

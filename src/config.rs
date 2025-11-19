@@ -9,12 +9,19 @@ pub struct ServerConfig {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct DynamoDB {
+    pub table: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct AppConfig {
     pub environment: String,
     #[serde(default)]
     pub server: Option<ServerConfig>,
     #[serde(default)]
     pub timezone: Option<String>,
+
+    pub dynamodb: Option<DynamoDB>,
 }
 
 impl AppConfig {
@@ -34,6 +41,7 @@ static CONFIG: LazyLock<AppConfig> = LazyLock::new(|| {
 
 pub fn init_config() {
     LazyLock::force(&CONFIG);
+    tracing::info!("Loaded config: {:#?}", &*CONFIG);
 }
 
 pub fn config() -> &'static AppConfig {

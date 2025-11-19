@@ -1,4 +1,4 @@
 #[cfg(feature = "sqs")]
-pub mod created;
+pub mod create;
 #[cfg(feature = "sqs")]
 mod helpers;

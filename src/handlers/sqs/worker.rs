@@ -1,6 +1,6 @@
 use crate::{
     error::StorageError,
-    service::{file::created::handle_file_created, File},
+    service::{file::create::handle_file_created, File},
     utils::string,
 };
 use aws_lambda_events::event::{

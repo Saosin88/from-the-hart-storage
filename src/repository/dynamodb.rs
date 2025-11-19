@@ -2,7 +2,7 @@ use aws_sdk_dynamodb::{types::AttributeValue, Client};
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::OnceCell;
 
-use crate::{error::StorageError, service::File};
+use crate::{config::config, error::StorageError, service::File};
 
 static DDB_CLIENT: OnceCell<Arc<Client>> = OnceCell::const_new();
 
@@ -22,10 +22,14 @@ pub struct DynamoDbRepository {
 }
 
 impl DynamoDbRepository {
-    pub async fn new(table_name: String) -> Self {
+    pub async fn new() -> Self {
+        let dynamo_db_config = config()
+            .dynamodb
+            .as_ref()
+            .expect("DynamoDB configuration is required");
         Self {
             client: get_dynamodb_client().await,
-            table_name,
+            table_name: dynamo_db_config.table.clone(),
         }
     }
 

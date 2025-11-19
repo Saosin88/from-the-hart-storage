@@ -33,7 +33,9 @@ pub async fn handle_file_created(mut file: File) -> Result<(), StorageError> {
     file.file_path = path.to_string();
     file.folder_prefix = calculate_folder_prefix(path).to_string();
 
-    match repository::s3::get_object_metadata(bucket, key).await {
+    let s3_repository = repository::s3::S3Repository::new().await;
+
+    match s3_repository.get_object_metadata(bucket, key).await {
         Ok(response) => {
             if let Some(ct) = response.content_type() {
                 file.content_type = ct.to_string();
@@ -65,7 +67,8 @@ pub async fn handle_file_created(mut file: File) -> Result<(), StorageError> {
 
     let num_bytes = std::cmp::min(512 * 1024, file.size_bytes as u64);
 
-    let head_bytes = repository::s3::fetch_head_bytes(bucket, key, num_bytes)
+    let head_bytes = s3_repository
+        .fetch_head_bytes(bucket, key, num_bytes)
         .await
         .map_err(|e| {
             StorageError::S3(format!(
@@ -90,7 +93,7 @@ pub async fn handle_file_created(mut file: File) -> Result<(), StorageError> {
         })?;
 
     let dynamo_db_repository =
-        repository::dynamodb::DynamoDbRepository::new("from-the-hart-storage-dev".to_string())
+        repository::dynamodb::DynamoDbRepository::new()
             .await;
 
     dynamo_db_repository

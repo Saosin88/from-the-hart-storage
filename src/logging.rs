@@ -1,9 +1,11 @@
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 pub fn init_logging() {
-    if std::env::var("RUST_LOG").is_err() {
-        panic!("RUST_LOG environment variable must be set");
-    }
+    let rust_log = std::env::var("RUST_LOG").unwrap_or_else(|_| {
+        std::env::set_var("RUST_LOG", "info");
+        "info".to_string()
+    });
+
     tracing_subscriber::registry()
         .with(
             fmt::layer()
@@ -15,6 +17,10 @@ pub fn init_logging() {
         .with(tracing_subscriber::EnvFilter::from_default_env())
         .with(tracing_error::ErrorLayer::default())
         .init();
+
+    if rust_log == "info" && std::env::var("RUST_LOG").is_ok() == false {
+        tracing::warn!("RUST_LOG environment variable not set, defaulting to 'info'");
+    }
 
     std::panic::set_hook(Box::new(|panic_info| {
         let payload = panic_info
@@ -29,10 +35,16 @@ pub fn init_logging() {
             .map(|l| format!("{}:{}", l.file(), l.line()))
             .unwrap_or_else(|| "unknown".to_string());
 
-        let bt = std::backtrace::Backtrace::force_capture();
+        eprintln!(
+            "{{\"level\":\"ERROR\",\"panic\":\"{}\",\"location\":\"{}\"}}", 
+            payload.replace('"', "\\\""), 
+            location
+        );
 
-        tracing::error!(panic = %payload, location = %location, backtrace = ?bt, "panic occurred");
-
-        eprintln!("PANIC: {} at {}\n{:?}", payload, location, bt);
+        tracing::error!(
+            panic = %payload, 
+            location = %location, 
+            "PANIC: Application panicked"
+        );
     }));
 }
