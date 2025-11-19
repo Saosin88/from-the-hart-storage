@@ -87,19 +87,6 @@ pub async fn handle_file_created(mut file: File) -> Result<(), StorageError> {
         .extract_metadata(&head_bytes, &mut file)
         .await;
 
-    serde_json::to_string(&file)
-        .map_err(|e| StorageError::Serialization(format!("Failed to serialize metadata: {}", e)))
-        .map(|json| {
-            info!(metadata = %json, "full_metadata");
-        })?;
-
-    let dynamo_db_repository = repository::dynamodb::DynamoDbRepository::new().await;
-
-    dynamo_db_repository
-        .put_file(&file)
-        .await
-        .map_err(|e| StorageError::DynamoDb(format!("Failed to put file in DynamoDB: {}", e)))?;
-
     let view_link = ViewLink {
         viewer_id: file.owner_id.clone(),
         resource_id: file.file_id.clone(),
@@ -112,11 +99,16 @@ pub async fn handle_file_created(mut file: File) -> Result<(), StorageError> {
         size_bytes: file.size_bytes,
     };
 
+    let dynamo_db_repository = repository::dynamodb::DynamoDbRepository::new().await;
+
     dynamo_db_repository
-        .put_view_link(&view_link)
+        .put_file_and_view_link(&file, &view_link)
         .await
         .map_err(|e| {
-            StorageError::DynamoDb(format!("Failed to put view link in DynamoDB: {}", e))
+            StorageError::DynamoDb(format!(
+                "Failed to put file and view link in DynamoDB: {}",
+                e
+            ))
         })?;
 
     info!("File processed successfully");
