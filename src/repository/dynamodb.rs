@@ -66,13 +66,12 @@ impl crate::repository::DynamoDbRepositoryTrait for DynamoDbRepository {
         for view_link in view_links {
             let view_item = view_link_to_dynamo_item(view_link);
 
-            let is_folder_marker = view_link.is_folder_marker();
 
             let mut put_builder = Put::builder()
                 .table_name(&self.table_name)
                 .set_item(Some(view_item));
 
-            if is_folder_marker {
+            if view_link.is_folder {
                 put_builder = put_builder
                     .condition_expression("attribute_not_exists(PK) AND attribute_not_exists(SK)");
             }

@@ -110,6 +110,7 @@ pub struct ViewLink {
     pub name: Arc<str>,
     pub media_type: Arc<str>,
     pub size_bytes: i64,
+    pub is_folder: bool,
 }
 
 impl ViewLink {
@@ -124,6 +125,7 @@ impl ViewLink {
             name: file.file_name.clone(),
             media_type: file.media_type.to_string().into(),
             size_bytes: file.size_bytes,
+            is_folder: false,
         }
     }
 
@@ -138,11 +140,8 @@ impl ViewLink {
             name: get_folder_name(full_folder_path).into(),
             media_type: "Folder".into(),
             size_bytes: 0,
+            is_folder: true,
         }
-    }
-
-    pub fn is_folder_marker(&self) -> bool {
-        self.resource_id.starts_with("FOLDER#")
     }
 }
 

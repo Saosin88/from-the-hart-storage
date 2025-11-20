@@ -11,19 +11,22 @@ pub fn view_link_to_dynamo_item(view_link: &ViewLink) -> HashMap<String, Attribu
         AttributeValue::S(format!("USER#{}", view_link.viewer_id)),
     );
 
-    let sk = if view_link.is_folder_marker() {
+    let sk = if view_link.is_folder {
         let folder_path = view_link
             .resource_id
             .strip_prefix("FOLDER#")
             .unwrap_or(&view_link.resource_id);
         format!("VIEWLINK#{}#FOLDER#{}", view_link.owner_id, folder_path)
     } else {
-        format!("VIEWLINK#{}#FILE#{}", view_link.owner_id, view_link.resource_id)
+        format!(
+            "VIEWLINK#{}#FILE#{}",
+            view_link.owner_id, view_link.resource_id
+        )
     };
 
     item.insert("SK".to_string(), AttributeValue::S(sk));
 
-    let item_type = if view_link.is_folder_marker() {
+    let item_type = if view_link.is_folder {
         "FOLDER_VIEW_LINK"
     } else {
         "FILE_VIEW_LINK"
@@ -74,7 +77,7 @@ pub fn view_link_to_dynamo_item(view_link: &ViewLink) -> HashMap<String, Attribu
         )),
     );
 
-    let gsi2_sk = if view_link.is_folder_marker() {
+    let gsi2_sk = if view_link.is_folder {
         format!("TYPE#FOLDER#{}#{}", view_link.name, view_link.owner_id)
     } else {
         format!(
