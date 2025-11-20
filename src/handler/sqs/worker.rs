@@ -90,6 +90,15 @@ pub async fn handle_sqs_event(
 
             span.record("key", key.as_str());
 
+            if key.as_str().ends_with("/") {
+                info!(
+                    message_id = %message_id,
+                    key = %key,
+                    "Skipping S3 zero-byte folder placeholder object"
+                );
+                continue;
+            }
+
             let file = File::new(key, bucket.to_string());
 
             match event {
