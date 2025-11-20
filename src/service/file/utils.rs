@@ -3,19 +3,23 @@ pub fn calculate_folder_prefix(file_path: &str) -> String {
     if segments.len() > 1 {
         segments[..segments.len() - 1].join("/") + "/"
     } else {
-        String::new()
+        "/".to_string()
     }
 }
 
 pub fn get_ancestor_folder_paths(file_path: &str) -> Vec<String> {
     let folder_prefix = calculate_folder_prefix(file_path);
 
-    if folder_prefix.is_empty() {
-        return Vec::new();
+    if folder_prefix == "/" {
+        return vec!["/".to_string()];
     }
 
-    let mut ancestors = Vec::new();
-    let segments: Vec<&str> = folder_prefix.trim_end_matches('/').split('/').collect();
+    let mut ancestors = vec!["/".to_string()];
+    let segments: Vec<&str> = folder_prefix
+        .trim_end_matches('/')
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
 
     for i in 1..=segments.len() {
         let path = segments[..i].join("/") + "/";
@@ -26,15 +30,23 @@ pub fn get_ancestor_folder_paths(file_path: &str) -> Vec<String> {
 }
 
 pub fn get_parent_folder_path(full_folder_path: &str) -> String {
+    if full_folder_path == "/" {
+        return "/".to_string();
+    }
+
     if full_folder_path.contains('/') {
-        let segments: Vec<&str> = full_folder_path.trim_end_matches('/').split('/').collect();
+        let segments: Vec<&str> = full_folder_path
+            .trim_end_matches('/')
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .collect();
         if segments.len() > 1 {
             segments[..segments.len() - 1].join("/") + "/"
         } else {
-            String::new()
+            "/".to_string()
         }
     } else {
-        String::new()
+        "/".to_string()
     }
 }
 
@@ -71,7 +83,7 @@ mod tests {
 
     #[test]
     fn test_calculate_folder_prefix_root_file() {
-        assert_eq!(calculate_folder_prefix("img.jpg"), "");
+        assert_eq!(calculate_folder_prefix("img.jpg"), "/");
     }
 
     #[test]
@@ -80,6 +92,7 @@ mod tests {
         assert_eq!(
             result,
             vec![
+                "/",
                 "media/",
                 "media/photos/",
                 "media/photos/2024/",
@@ -91,13 +104,13 @@ mod tests {
     #[test]
     fn test_get_ancestor_folder_paths_single_level() {
         let result = get_ancestor_folder_paths("media/img.jpg");
-        assert_eq!(result, vec!["media/"]);
+        assert_eq!(result, vec!["/", "media/"]);
     }
 
     #[test]
     fn test_get_ancestor_folder_paths_root_file() {
         let result = get_ancestor_folder_paths("img.jpg");
-        assert_eq!(result, Vec::<String>::new());
+        assert_eq!(result, vec!["/"]);
     }
 
     #[test]
@@ -110,12 +123,12 @@ mod tests {
 
     #[test]
     fn test_get_parent_folder_path_single_level() {
-        assert_eq!(get_parent_folder_path("media/"), "");
+        assert_eq!(get_parent_folder_path("media/"), "/");
     }
 
     #[test]
     fn test_get_parent_folder_path_root() {
-        assert_eq!(get_parent_folder_path(""), "");
+        assert_eq!(get_parent_folder_path("/"), "/");
     }
 
     #[test]

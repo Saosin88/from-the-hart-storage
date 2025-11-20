@@ -9,10 +9,10 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 WORKDIR /app
 
 COPY Cargo.toml Cargo.lock ./
-RUN mkdir src && \
-    echo "fn main() {}" > src/lambda_sqs.rs && \
-    echo "" > src/lib.rs
-RUN cargo build --release --bin bootstrap_sqs --features sqs --no-default-features || true
+RUN mkdir -p src/bin && \
+    echo "fn main() {}" > src/bin/bootstrap_sqs.rs && \
+    echo "// lib" > src/lib.rs
+RUN cargo build --release --bin bootstrap_sqs --features sqs --no-default-features
 
 COPY src ./src
 RUN cargo build --release --bin bootstrap_sqs --features sqs --no-default-features

@@ -18,7 +18,7 @@ pub fn view_link_to_dynamo_item(view_link: &ViewLink) -> HashMap<String, Attribu
             .unwrap_or(&view_link.resource_id);
         format!("VIEWLINK#{}#FOLDER#{}", view_link.owner_id, folder_path)
     } else {
-        format!("VIEWLINK#{}#{}", view_link.owner_id, view_link.resource_id)
+        format!("VIEWLINK#{}#FILE#{}", view_link.owner_id, view_link.resource_id)
     };
 
     item.insert("SK".to_string(), AttributeValue::S(sk));

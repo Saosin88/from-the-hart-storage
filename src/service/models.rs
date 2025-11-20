@@ -130,13 +130,13 @@ impl ViewLink {
     pub fn for_owner_folder(file: &File, full_folder_path: &str) -> Self {
         Self {
             viewer_id: file.owner_id.clone(),
-            resource_id: format!("FOLDER#{}", full_folder_path).into(),
+            resource_id: full_folder_path.into(),
             owner_id: file.owner_id.clone(),
             grant_id: "OWNER".into(),
             created_date: file.created_date,
             folder_prefix: get_parent_folder_path(full_folder_path).into(),
             name: get_folder_name(full_folder_path).into(),
-            media_type: "application/x-directory".into(),
+            media_type: "Folder".into(),
             size_bytes: 0,
         }
     }
