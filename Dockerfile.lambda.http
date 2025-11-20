@@ -16,7 +16,6 @@ RUN cargo build --release --bin bootstrap_http --features http --no-default-feat
 
 COPY src ./src
 RUN cargo build --release --bin bootstrap_http --features http --no-default-features
-RUN strip /app/target/release/bootstrap_http
 
 FROM public.ecr.aws/lambda/provided:al2023
 

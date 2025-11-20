@@ -16,7 +16,6 @@ RUN cargo build --release --bin bootstrap_sqs --features sqs --no-default-featur
 
 COPY src ./src
 RUN cargo build --release --bin bootstrap_sqs --features sqs --no-default-features
-RUN strip /app/target/release/bootstrap_sqs
 
 FROM public.ecr.aws/lambda/provided:al2023
 
