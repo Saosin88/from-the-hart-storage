@@ -15,6 +15,7 @@ RUN mkdir -p src/bin && \
 RUN cargo build --release --bin bootstrap_sqs --features sqs --no-default-features
 
 COPY src ./src
+RUN rm -rf target/release/.fingerprint/from-the-hart-storage-* target/release/deps/from_the_hart_storage-* target/release/bootstrap_sqs
 RUN cargo build --release --bin bootstrap_sqs --features sqs --no-default-features
 
 FROM public.ecr.aws/lambda/provided:al2023
