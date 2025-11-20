@@ -2,10 +2,9 @@
 pub mod health;
 
 #[cfg(feature = "sqs")]
-pub mod file;
-
-#[cfg(feature = "sqs")]
 pub mod metadata;
+
+pub mod file;
 
 pub mod models;
 
