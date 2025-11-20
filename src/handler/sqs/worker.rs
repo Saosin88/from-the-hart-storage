@@ -23,7 +23,7 @@ pub async fn handle_sqs_event(
 
     for record in event.records {
         let message_id = record.message_id.as_deref().unwrap_or("");
-        
+
         let span = tracing::info_span!(
             "sqs_message",
             message_id = %message_id,
@@ -61,7 +61,7 @@ pub async fn handle_sqs_event(
                 error!(message_id = %message_id, "S3 record missing event name");
                 continue;
             };
-            
+
             span.record("event_type", event);
 
             let bucket = if let Some(b) = rec.s3.bucket.name.as_deref() {
@@ -70,7 +70,7 @@ pub async fn handle_sqs_event(
                 error!(message_id = %message_id, "S3 record missing bucket name");
                 continue;
             };
-            
+
             span.record("bucket", bucket);
 
             let key_raw = if let Some(k) = rec.s3.object.key.as_deref() {
@@ -87,8 +87,8 @@ pub async fn handle_sqs_event(
                     continue;
                 }
             };
-            
-            span.record("key", &key.as_str());
+
+            span.record("key", key.as_str());
 
             let file = File::new(key, bucket.to_string());
 

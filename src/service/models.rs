@@ -1,9 +1,9 @@
-use aws_sdk_dynamodb::types::AttributeValue;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
+use crate::service::file::utils::{get_folder_name, get_parent_folder_path};
 use crate::utils::time;
 
 #[derive(Debug, Clone)]
@@ -44,74 +44,6 @@ impl File {
             media_type: MediaType::Unknown,
             media_metadata: None,
         }
-    }
-
-    pub fn to_dynamo_item(&self) -> HashMap<String, AttributeValue> {
-        let mut item = HashMap::new();
-        item.insert(
-            "PK".to_string(),
-            AttributeValue::S(format!("USER#{}", self.owner_id)),
-        );
-        item.insert(
-            "SK".to_string(),
-            AttributeValue::S(format!("FILE#{}", self.file_path)),
-        );
-        item.insert(
-            "item_type".to_string(),
-            AttributeValue::S("FILE".to_string()),
-        );
-        item.insert(
-            "owner_id".to_string(),
-            AttributeValue::S(self.owner_id.to_string()),
-        );
-        item.insert(
-            "resource_id".to_string(),
-            AttributeValue::S(self.file_id.to_string()),
-        );
-        item.insert(
-            "file_name".to_string(),
-            AttributeValue::S(self.file_name.to_string()),
-        );
-        item.insert(
-            "file_path".to_string(),
-            AttributeValue::S(self.file_path.to_string()),
-        );
-        item.insert(
-            "folder_prefix".to_string(),
-            AttributeValue::S(self.folder_prefix.to_string()),
-        );
-        item.insert(
-            "media_type".to_string(),
-            AttributeValue::S(self.media_type.to_string()),
-        );
-        item.insert(
-            "content_type".to_string(),
-            AttributeValue::S(self.content_type.to_string()),
-        );
-        item.insert(
-            "size_bytes".to_string(),
-            AttributeValue::N(self.size_bytes.to_string()),
-        );
-        item.insert(
-            "created_date".to_string(),
-            AttributeValue::N(self.created_date.to_string()),
-        );
-        item.insert(
-            "bucket_key".to_string(),
-            AttributeValue::S(self.bucket_key.to_string()),
-        );
-        item.insert(
-            "bucket".to_string(),
-            AttributeValue::S(self.bucket.to_string()),
-        );
-
-        if let Some(metadata) = &self.media_metadata {
-            if let Ok(meta_json) = serde_json::to_string(metadata) {
-                item.insert("MediaMetadata".to_string(), AttributeValue::S(meta_json));
-            }
-        }
-
-        item
     }
 }
 
@@ -195,68 +127,22 @@ impl ViewLink {
         }
     }
 
-    pub fn to_dynamo_item(&self) -> HashMap<String, AttributeValue> {
-        let mut item = HashMap::new();
-        item.insert(
-            "PK".to_string(),
-            AttributeValue::S(format!("USER#{}", self.viewer_id)),
-        );
-        item.insert(
-            "SK".to_string(),
-            AttributeValue::S(format!(
-                "VIEWLINK#{}#{}",
-                self.owner_id, self.resource_id
-            )),
-        );
-        item.insert(
-            "resource_id".to_string(),
-            AttributeValue::S(self.resource_id.to_string()),
-        );
-        item.insert(
-            "owner_id".to_string(),
-            AttributeValue::S(self.owner_id.to_string()),
-        );
-        item.insert(
-            "grant_id".to_string(),
-            AttributeValue::S(self.grant_id.to_string()),
-        );
-        item.insert(
-            "created_date".to_string(),
-            AttributeValue::N(self.created_date.to_string()),
-        );
-        item.insert(
-            "folder_prefix".to_string(),
-            AttributeValue::S(self.folder_prefix.to_string()),
-        );
-        item.insert(
-            "file_name".to_string(),
-            AttributeValue::S(self.file_name.to_string()),
-        );
-        item.insert(
-            "media_type".to_string(),
-            AttributeValue::S(self.media_type.to_string()),
-        );
-        item.insert(
-            "size_bytes".to_string(),
-            AttributeValue::N(self.size_bytes.to_string()),
-        );
+    pub fn for_owner_folder(file: &File, full_folder_path: &str) -> Self {
+        Self {
+            viewer_id: file.owner_id.clone(),
+            resource_id: format!("FOLDER#{}", full_folder_path).into(),
+            owner_id: file.owner_id.clone(),
+            grant_id: "OWNER".into(),
+            created_date: file.created_date,
+            folder_prefix: get_parent_folder_path(full_folder_path).into(),
+            file_name: get_folder_name(full_folder_path).into(),
+            media_type: "application/x-directory".into(),
+            size_bytes: 0,
+        }
+    }
 
-        item.insert(
-            "GSI2-PK".to_string(),
-            AttributeValue::S(format!(
-                "VIEWER#{}#FOLDER#{}",
-                self.viewer_id, self.folder_prefix
-            )),
-        );
-        item.insert(
-            "GSI2-SK".to_string(),
-            AttributeValue::S(format!(
-                "TYPE#FILE#{}#{}#{}",
-                self.created_date, self.media_type, self.resource_id
-            )),
-        );
-
-        item
+    pub fn is_folder_marker(&self) -> bool {
+        self.resource_id.starts_with("FOLDER#")
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::service::file::utils::calculate_folder_prefix;
+use crate::service::file::utils::{calculate_folder_prefix, get_ancestor_folder_paths};
 use crate::service::metadata::MetadataServiceTrait;
 use crate::service::models::ViewLink;
 use crate::utils::string;
@@ -29,13 +29,28 @@ pub async fn handle_file_created(
 
     enrich_with_media_metadata(&mut file, s3_repository, metadata_service).await?;
 
-    let view_link = ViewLink::for_owner(&file);
+    let file_view_link = ViewLink::for_owner(&file);
+
+    let ancestor_paths = get_ancestor_folder_paths(&file.file_path);
+    let mut folder_view_links: Vec<ViewLink> = ancestor_paths
+        .iter()
+        .map(|folder_path| ViewLink::for_owner_folder(&file, folder_path))
+        .collect();
+
+    let mut all_view_links = vec![file_view_link];
+    all_view_links.append(&mut folder_view_links);
+
+    info!(
+        "Creating FILE item + {} VIEW_LINKs (1 file + {} folder markers)",
+        all_view_links.len(),
+        ancestor_paths.len()
+    );
 
     dynamo_db_repository
-        .put_file_and_view_link(&file, &view_link)
+        .put_file_and_view_links(&file, &all_view_links)
         .await
         .map_err(|e| StorageError::DynamoDb {
-            context: "Failed to put file and view link in DynamoDB".to_string(),
+            context: "Failed to put file and view links in DynamoDB".to_string(),
             source: e.into(),
         })?;
 
@@ -117,7 +132,10 @@ async fn enrich_with_media_metadata(
         .fetch_head_bytes(&file.bucket, &file.bucket_key, num_bytes)
         .await
         .map_err(|e| StorageError::S3 {
-            context: format!("Failed to fetch first {} bytes from S3 for {}/{}", num_bytes, file.bucket, file.bucket_key),
+            context: format!(
+                "Failed to fetch first {} bytes from S3 for {}/{}",
+                num_bytes, file.bucket, file.bucket_key
+            ),
             source: e.into(),
         })?;
 
@@ -126,9 +144,7 @@ async fn enrich_with_media_metadata(
         head_bytes.len()
     );
 
-    metadata_service
-        .extract_metadata(&head_bytes, file)
-        .await;
+    metadata_service.extract_metadata(&head_bytes, file).await;
 
     Ok(())
 }

@@ -11,6 +11,8 @@ use crate::{
     service::{models::ViewLink, File},
 };
 
+use super::utils::{file_to_dynamo_item, view_link_to_dynamo_item};
+
 static DDB_CLIENT: OnceCell<Arc<Client>> = OnceCell::const_new();
 
 async fn get_dynamodb_client() -> Arc<Client> {
@@ -43,13 +45,12 @@ impl DynamoDbRepository {
 
 #[async_trait::async_trait]
 impl crate::repository::DynamoDbRepositoryTrait for DynamoDbRepository {
-    async fn put_file_and_view_link(
+    async fn put_file_and_view_links(
         &self,
         file: &File,
-        view_link: &ViewLink,
+        view_links: &[ViewLink],
     ) -> Result<(), StorageError> {
-        let file_item = file.to_dynamo_item();
-        let view_item = view_link.to_dynamo_item();
+        let file_item = file_to_dynamo_item(file);
 
         let put_file = Put::builder()
             .table_name(&self.table_name)
@@ -60,27 +61,56 @@ impl crate::repository::DynamoDbRepositoryTrait for DynamoDbRepository {
                 source: e.into(),
             })?;
 
-        let put_view = Put::builder()
-            .table_name(&self.table_name)
-            .set_item(Some(view_item))
-            .build()
-            .map_err(|e| StorageError::DynamoDb {
+        let mut transact_items = vec![TransactWriteItem::builder().put(put_file).build()];
+
+        for view_link in view_links {
+            let view_item = view_link_to_dynamo_item(view_link);
+
+            let is_folder_marker = view_link.is_folder_marker();
+
+            let mut put_builder = Put::builder()
+                .table_name(&self.table_name)
+                .set_item(Some(view_item));
+
+            if is_folder_marker {
+                put_builder = put_builder
+                    .condition_expression("attribute_not_exists(PK) AND attribute_not_exists(SK)");
+            }
+
+            let put_view = put_builder.build().map_err(|e| StorageError::DynamoDb {
                 context: "Failed to build Put for view link".to_string(),
                 source: e.into(),
             })?;
 
-        let file = TransactWriteItem::builder().put(put_file).build();
-        let view_link = TransactWriteItem::builder().put(put_view).build();
+            transact_items.push(TransactWriteItem::builder().put(put_view).build());
+        }
 
-        self.client
-            .transact_write_items()
-            .set_transact_items(Some(vec![file, view_link]))
-            .send()
-            .await
-            .map_err(|e| StorageError::DynamoDb {
-                context: "Failed to execute DynamoDB transaction".to_string(),
-                source: e.into(),
-            })?;
+        for batch in transact_items.chunks(100) {
+            match self
+                .client
+                .transact_write_items()
+                .set_transact_items(Some(batch.to_vec()))
+                .send()
+                .await
+            {
+                Ok(_) => continue,
+                Err(e) => {
+                    let error_msg = e.to_string();
+                    if error_msg.contains("ConditionalCheckFailed") {
+                        tracing::debug!("Folder marker already exists in batch, continuing");
+                        continue;
+                    } else {
+                        return Err(StorageError::DynamoDb {
+                            context: format!(
+                                "Failed to execute DynamoDB transaction for batch (size: {})",
+                                batch.len()
+                            ),
+                            source: e.into(),
+                        });
+                    }
+                }
+            }
+        }
 
         Ok(())
     }

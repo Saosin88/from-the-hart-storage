@@ -1,17 +1,18 @@
-use async_trait::async_trait;
 use crate::error::StorageError;
-use crate::service::{File, models::ViewLink};
+use crate::service::{models::ViewLink, File};
+use async_trait::async_trait;
 use aws_sdk_s3::operation::head_object::HeadObjectOutput;
 
 pub mod dynamodb;
 pub mod s3;
+pub mod utils;
 
 #[async_trait]
 pub trait DynamoDbRepositoryTrait: Send + Sync {
-    async fn put_file_and_view_link(
+    async fn put_file_and_view_links(
         &self,
         file: &File,
-        view_link: &ViewLink,
+        view_links: &[ViewLink],
     ) -> Result<(), StorageError>;
 }
 
