@@ -11,10 +11,10 @@ pub fn get_ancestor_folder_paths(file_path: &str) -> Vec<String> {
     let folder_prefix = calculate_folder_prefix(file_path);
 
     if folder_prefix == "/" {
-        return vec!["/".to_string()];
+        return vec![];
     }
 
-    let mut ancestors = vec!["/".to_string()];
+    let mut ancestors = vec![];
     let segments: Vec<&str> = folder_prefix
         .trim_end_matches('/')
         .split('/')
@@ -92,7 +92,6 @@ mod tests {
         assert_eq!(
             result,
             vec![
-                "/",
                 "/media/",
                 "/media/photos/",
                 "/media/photos/2024/",
@@ -104,13 +103,13 @@ mod tests {
     #[test]
     fn test_get_ancestor_folder_paths_single_level() {
         let result = get_ancestor_folder_paths("media/img.jpg");
-        assert_eq!(result, vec!["/", "/media/"]);
+        assert_eq!(result, vec!["/media/"]);
     }
 
     #[test]
     fn test_get_ancestor_folder_paths_root_file() {
         let result = get_ancestor_folder_paths("img.jpg");
-        assert_eq!(result, vec!["/"]);
+        assert_eq!(result, Vec::<String>::new());
     }
 
     #[test]
