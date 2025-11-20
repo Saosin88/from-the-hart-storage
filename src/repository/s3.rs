@@ -42,11 +42,9 @@ impl crate::repository::S3RepositoryTrait for S3Repository {
             .key(key)
             .send()
             .await
-            .map_err(|e| {
-                StorageError::S3(format!(
-                    "Failed to get S3 object metadata for s3://{}/{}: {}",
-                    bucket, key, e
-                ))
+            .map_err(|e| StorageError::S3 {
+                context: format!("Failed to get S3 object metadata for s3://{}/{}", bucket, key),
+                source: e.into(),
             })?;
 
         Ok(response)
@@ -68,22 +66,18 @@ impl crate::repository::S3RepositoryTrait for S3Repository {
             .range(&range)
             .send()
             .await
-            .map_err(|e| {
-                StorageError::S3(format!(
-                    "Failed to fetch byte range {} from S3 object s3://{}/{}: {}",
-                    range, bucket, key, e
-                ))
+            .map_err(|e| StorageError::S3 {
+                context: format!("Failed to fetch byte range {} from S3 object s3://{}/{}", range, bucket, key),
+                source: e.into(),
             })?;
 
         let bytes = response
             .body
             .collect()
             .await
-            .map_err(|e| {
-                StorageError::S3(format!(
-                    "Failed to read S3 response body for s3://{}/{}: {}",
-                    bucket, key, e
-                ))
+            .map_err(|e| StorageError::S3 {
+                context: format!("Failed to read S3 response body for s3://{}/{}", bucket, key),
+                source: e.into(),
             })?
             .into_bytes();
 

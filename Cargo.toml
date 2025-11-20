@@ -31,9 +31,10 @@ config = "0.15"
 dotenvy = "0.15"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "signal", "net"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
 tracing-error = "0.2"
 thiserror = "2.0.17"
+anyhow = "1.0"
 aws-config = "1.5.17"
 aws-sdk-s3 = "1.69.0"
 chrono = { version = "0.4", features = ["serde"] }

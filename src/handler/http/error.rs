@@ -46,65 +46,65 @@ impl IntoResponse for HttpError {
 impl From<StorageError> for HttpError {
     fn from(err: StorageError) -> Self {
         match err {
-            StorageError::NotInitialized(msg) => HttpError::new(
+            StorageError::NotInitialized { context } => HttpError::new(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "SERVICE_NOT_INITIALIZED".to_string(),
                 "Service is not properly initialized".to_string(),
-                Some(msg),
+                Some(context),
             ),
-            StorageError::NotFound(msg) => HttpError::new(
+            StorageError::NotFound { context } => HttpError::new(
                 StatusCode::NOT_FOUND,
                 "NOT_FOUND".to_string(),
                 "Resource not found".to_string(),
-                Some(msg),
+                Some(context),
             ),
-            StorageError::Internal(msg) => HttpError::new(
+            StorageError::Internal { context, .. } => HttpError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "INTERNAL_ERROR".to_string(),
                 "An internal error occurred".to_string(),
-                Some(msg),
+                Some(context),
             ),
-            StorageError::S3(msg) => HttpError::new(
+            StorageError::S3 { context, .. } => HttpError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "S3_ERROR".to_string(),
-                "Storage operation failed".to_string(),
-                Some(msg),
+                "Failed to interact with S3".to_string(),
+                Some(context),
             ),
-            StorageError::DynamoDb(msg) => HttpError::new(
+            StorageError::DynamoDb { context, .. } => HttpError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "DYNAMODB_ERROR".to_string(),
-                "DynamoDB operation failed".to_string(),
-                Some(msg),
+                "Failed to interact with DynamoDB".to_string(),
+                Some(context),
             ),
-            StorageError::Metadata(msg) => HttpError::new(
+            StorageError::Metadata { context, .. } => HttpError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "METADATA_ERROR".to_string(),
-                "Metadata extraction failed".to_string(),
-                Some(msg),
+                "Failed to extract metadata".to_string(),
+                Some(context),
             ),
-            StorageError::Time(msg) => HttpError::new(
+            StorageError::Time { context } => HttpError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "TIME_ERROR".to_string(),
-                "Time calculation failed".to_string(),
-                Some(msg),
+                "Failed to calculate time".to_string(),
+                Some(context),
             ),
-            StorageError::UrlDecode(msg) => HttpError::new(
+            StorageError::UrlDecode { context, .. } => HttpError::new(
                 StatusCode::BAD_REQUEST,
                 "URL_DECODE_ERROR".to_string(),
                 "Failed to decode URL".to_string(),
-                Some(msg),
+                Some(context),
             ),
-            StorageError::Serialization(msg) => HttpError::new(
+            StorageError::Serialization { context, .. } => HttpError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "SERIALIZATION_ERROR".to_string(),
                 "Failed to serialize data".to_string(),
-                Some(msg),
+                Some(context),
             ),
-            StorageError::InvalidFormat(msg) => HttpError::new(
+            StorageError::InvalidFormat { context } => HttpError::new(
                 StatusCode::BAD_REQUEST,
                 "INVALID_FORMAT_ERROR".to_string(),
                 "Invalid format encountered".to_string(),
-                Some(msg),
+                Some(context),
             ),
         }
     }

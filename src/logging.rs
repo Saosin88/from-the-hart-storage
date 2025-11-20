@@ -1,4 +1,4 @@
-use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 pub fn init_logging() {
     let rust_log = std::env::var("RUST_LOG").unwrap_or_else(|_| {
@@ -12,9 +12,14 @@ pub fn init_logging() {
                 .json()
                 .with_ansi(false)
                 .with_current_span(true)
-                .with_span_list(false),
+                .with_span_list(false)
+                .with_target(true)
+                .with_file(true)
+                .with_line_number(true)
+                .with_thread_ids(true)
+                .with_thread_names(true),
         )
-        .with(tracing_subscriber::EnvFilter::from_default_env())
+        .with(EnvFilter::from_default_env())
         .with(tracing_error::ErrorLayer::default())
         .init();
 

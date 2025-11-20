@@ -55,14 +55,18 @@ impl crate::repository::DynamoDbRepositoryTrait for DynamoDbRepository {
             .table_name(&self.table_name)
             .set_item(Some(file_item))
             .build()
-            .map_err(|e| StorageError::DynamoDb(format!("Failed to build Put for file: {}", e)))?;
+            .map_err(|e| StorageError::DynamoDb {
+                context: "Failed to build Put for file".to_string(),
+                source: e.into(),
+            })?;
 
         let put_view = Put::builder()
             .table_name(&self.table_name)
             .set_item(Some(view_item))
             .build()
-            .map_err(|e| {
-                StorageError::DynamoDb(format!("Failed to build Put for view link: {}", e))
+            .map_err(|e| StorageError::DynamoDb {
+                context: "Failed to build Put for view link".to_string(),
+                source: e.into(),
             })?;
 
         let file = TransactWriteItem::builder().put(put_file).build();
@@ -73,8 +77,9 @@ impl crate::repository::DynamoDbRepositoryTrait for DynamoDbRepository {
             .set_transact_items(Some(vec![file, view_link]))
             .send()
             .await
-            .map_err(|e| {
-                StorageError::DynamoDb(format!("Failed to execute DynamoDB transaction: {}", e))
+            .map_err(|e| StorageError::DynamoDb {
+                context: "Failed to execute DynamoDB transaction".to_string(),
+                source: e.into(),
             })?;
 
         Ok(())

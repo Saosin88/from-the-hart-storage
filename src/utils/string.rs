@@ -4,7 +4,10 @@ use sha2::{Digest, Sha256};
 pub fn url_decode(s: &str) -> Result<String, StorageError> {
     urlencoding::decode(s)
         .map(|cow| cow.into_owned())
-        .map_err(|e| StorageError::UrlDecode(format!("Failed to decode '{}': {}", s, e)))
+        .map_err(|e| StorageError::UrlDecode {
+            context: format!("Failed to decode '{}'", s),
+            source: e.into(),
+        })
 }
 
 pub fn clean_value(raw: &str) -> String {

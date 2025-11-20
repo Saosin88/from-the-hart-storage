@@ -34,11 +34,9 @@ pub async fn handle_file_created(
     dynamo_db_repository
         .put_file_and_view_link(&file, &view_link)
         .await
-        .map_err(|e| {
-            StorageError::DynamoDb(format!(
-                "Failed to put file and view link in DynamoDB: {}",
-                e
-            ))
+        .map_err(|e| StorageError::DynamoDb {
+            context: "Failed to put file and view link in DynamoDB".to_string(),
+            source: e.into(),
         })?;
 
     info!("File processed successfully");
@@ -52,7 +50,9 @@ fn parse_and_init_file(mut file: File) -> Result<File, StorageError> {
 
     let (owner, path) = key
         .split_once('/')
-        .ok_or_else(|| StorageError::InvalidFormat(format!("Invalid S3 key format: {}", key)))?;
+        .ok_or_else(|| StorageError::InvalidFormat {
+            context: format!("Invalid S3 key format: {}", key),
+        })?;
 
     file.owner_id = owner.into();
     file.file_id = string::sha256_hash(&format!("{}/{}", bucket, key)).into();
@@ -116,11 +116,9 @@ async fn enrich_with_media_metadata(
     let head_bytes = s3_repository
         .fetch_head_bytes(&file.bucket, &file.bucket_key, num_bytes)
         .await
-        .map_err(|e| {
-            StorageError::S3(format!(
-                "Failed to fetch first {} bytes from S3 for {}/{}: {}",
-                num_bytes, file.bucket, file.bucket_key, e
-            ))
+        .map_err(|e| StorageError::S3 {
+            context: format!("Failed to fetch first {} bytes from S3 for {}/{}", num_bytes, file.bucket, file.bucket_key),
+            source: e.into(),
         })?;
 
     info!(
