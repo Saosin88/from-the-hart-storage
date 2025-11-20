@@ -1,6 +1,6 @@
 use crate::{
     handler::http::{
-        dto::{HealthData, HealthResponse},
+        dto::HealthResponse,
         error::HttpErrorResponse,
     },
     service::health,
@@ -12,13 +12,7 @@ use axum::{http::StatusCode, response::IntoResponse, Json};
 pub async fn health() -> impl IntoApiResponse {
     match health::get_health_status() {
         Ok(status) => {
-            let response = HealthResponse {
-                data: HealthData {
-                    status: "ok".to_string(),
-                    uptime: status.uptime,
-                    timestamp: status.timestamp,
-                },
-            };
+            let response = HealthResponse::from(status);
             (StatusCode::OK, Json(response)).into_response()
         }
         Err(err) => {

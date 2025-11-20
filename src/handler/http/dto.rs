@@ -1,3 +1,4 @@
+use crate::service::models::HealthStatus;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +20,18 @@ pub struct HealthData {
 pub struct HealthResponse {
     #[schemars(description = "Health check data")]
     pub data: HealthData,
+}
+
+impl From<HealthStatus> for HealthResponse {
+    fn from(status: HealthStatus) -> Self {
+        Self {
+            data: HealthData {
+                status: "ok".to_string(),
+                uptime: status.uptime,
+                timestamp: status.timestamp,
+            },
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]

@@ -6,7 +6,7 @@ use extractor::MetadataExtractor;
 use image::ImageMetadataExtractor;
 
 use std::path::Path;
-use tracing::error;
+
 
 use async_trait::async_trait;
 
@@ -31,7 +31,7 @@ impl MetadataService {
 #[async_trait]
 impl MetadataServiceTrait for MetadataService {
     async fn extract_metadata(&self, head_bytes: &[u8], file: &mut File) {
-        let extension = Path::new(file.file_name.as_str())
+        let extension = Path::new(&*file.file_name)
             .extension()
             .and_then(|ext| ext.to_str())
             .unwrap_or("")
@@ -41,18 +41,22 @@ impl MetadataServiceTrait for MetadataService {
         let file_name = file.file_name.clone();
         let bucket = file.bucket.clone();
 
+        let mut extracted = false;
         for extractor in &self.extractors {
             if extractor.can_handle(&extension, Some(&content_type)) {
                 extractor.extract_and_add_to_file(head_bytes, file).await;
-            } else {
-                error!(
-                    file = %file_name,
-                    bucket = %bucket,
-                    content_type = ?content_type,
-                    extension = %extension,
-                    "no metadata extractor matched this file"
-                );
+                extracted = true;
             }
+        }
+
+        if !extracted {
+            tracing::warn!(
+                file = %file_name,
+                bucket = %bucket,
+                content_type = ?content_type,
+                extension = %extension,
+                "No metadata extractor matched this file"
+            );
         }
     }
 }
