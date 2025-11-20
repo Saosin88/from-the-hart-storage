@@ -24,3 +24,5 @@ WORKDIR /var/task
 COPY --from=builder /app/target/release/bootstrap_sqs ./bootstrap
 
 RUN chmod +x ./bootstrap
+
+ENTRYPOINT [ "./bootstrap" ]

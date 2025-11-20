@@ -56,5 +56,5 @@ path = "src/lib.rs"
 opt-level = "z"
 lto = true
 codegen-units = 1
-strip = true
+strip = false
 panic = "abort"
