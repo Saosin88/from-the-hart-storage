@@ -39,8 +39,11 @@ impl DynamoDbRepository {
             table_name: dynamo_db_config.table.clone(),
         }
     }
+}
 
-    pub async fn put_file_and_view_link(
+#[async_trait::async_trait]
+impl crate::repository::DynamoDbRepositoryTrait for DynamoDbRepository {
+    async fn put_file_and_view_link(
         &self,
         file: &File,
         view_link: &ViewLink,

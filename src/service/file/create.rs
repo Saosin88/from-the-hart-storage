@@ -1,16 +1,18 @@
 use crate::service::file::helpers::calculate_folder_prefix;
-use crate::service::metadata::MetadataService;
+use crate::service::metadata::MetadataServiceTrait;
 use crate::service::models::ViewLink;
 use crate::utils::string;
-use crate::{error::StorageError, repository, service::File, utils::time};
+use crate::{error::StorageError, repository::{DynamoDbRepositoryTrait, S3RepositoryTrait}, service::File, utils::time};
 
 use std::path::Path;
-use std::sync::LazyLock;
 use tracing::{error, info};
 
-static METADATA_SERVICE: LazyLock<MetadataService> = LazyLock::new(MetadataService::new);
-
-pub async fn handle_file_created(mut file: File) -> Result<(), StorageError> {
+pub async fn handle_file_created(
+    mut file: File,
+    s3_repository: &impl S3RepositoryTrait,
+    dynamo_db_repository: &impl DynamoDbRepositoryTrait,
+    metadata_service: &impl MetadataServiceTrait,
+) -> Result<(), StorageError> {
     let bucket = &file.bucket;
     let key = &file.bucket_key;
 
@@ -33,8 +35,6 @@ pub async fn handle_file_created(mut file: File) -> Result<(), StorageError> {
         .to_string();
     file.file_path = path.to_string();
     file.folder_prefix = calculate_folder_prefix(path).to_string();
-
-    let s3_repository = repository::s3::S3Repository::new().await;
 
     match s3_repository.get_object_metadata(bucket, key).await {
         Ok(response) => {
@@ -83,7 +83,7 @@ pub async fn handle_file_created(mut file: File) -> Result<(), StorageError> {
         head_bytes.len()
     );
 
-    METADATA_SERVICE
+    metadata_service
         .extract_metadata(&head_bytes, &mut file)
         .await;
 
@@ -98,8 +98,6 @@ pub async fn handle_file_created(mut file: File) -> Result<(), StorageError> {
         media_type: file.media_type.to_string(),
         size_bytes: file.size_bytes,
     };
-
-    let dynamo_db_repository = repository::dynamodb::DynamoDbRepository::new().await;
 
     dynamo_db_repository
         .put_file_and_view_link(&file, &view_link)

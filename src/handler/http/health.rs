@@ -1,5 +1,5 @@
 use crate::{
-    handlers::http::{
+    handler::http::{
         dto::{HealthData, HealthResponse},
         error::HttpErrorResponse,
     },
@@ -22,7 +22,7 @@ pub async fn health() -> impl IntoApiResponse {
             (StatusCode::OK, Json(response)).into_response()
         }
         Err(err) => {
-            let http_error = crate::handlers::http::error::HttpError::from(err);
+            let http_error = crate::handler::http::error::HttpError::from(err);
             http_error.into_response()
         }
     }
@@ -54,7 +54,7 @@ pub fn health_docs(op: TransformOperation) -> TransformOperation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::handlers::http::routes;
+    use crate::handler::http::routes;
     use axum::http::StatusCode;
     use axum_test::TestServer;
 

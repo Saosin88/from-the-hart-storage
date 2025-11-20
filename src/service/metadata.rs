@@ -8,6 +8,13 @@ use image::ImageMetadataExtractor;
 use std::path::Path;
 use tracing::error;
 
+use async_trait::async_trait;
+
+#[async_trait]
+pub trait MetadataServiceTrait: Send + Sync {
+    async fn extract_metadata(&self, head_bytes: &[u8], file: &mut File);
+}
+
 pub struct MetadataService {
     extractors: Vec<Box<dyn MetadataExtractor>>,
 }
@@ -19,8 +26,11 @@ impl MetadataService {
 
         Self { extractors }
     }
+}
 
-    pub async fn extract_metadata(&self, head_bytes: &[u8], file: &mut File) {
+#[async_trait]
+impl MetadataServiceTrait for MetadataService {
+    async fn extract_metadata(&self, head_bytes: &[u8], file: &mut File) {
         let extension = Path::new(file.file_name.as_str())
             .extension()
             .and_then(|ext| ext.to_str())

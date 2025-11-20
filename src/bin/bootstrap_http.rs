@@ -1,4 +1,4 @@
-use from_the_hart_storage::{config, handlers::http::routes, logging, utils::time};
+use from_the_hart_storage::{config, handler::http::routes, logging, utils::time};
 
 use lambda_http::Error;
 use tower::ServiceBuilder;

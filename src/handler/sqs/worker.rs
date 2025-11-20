@@ -1,6 +1,7 @@
 use crate::{
     error::StorageError,
-    service::{file::create::handle_file_created, File},
+    repository::{DynamoDbRepositoryTrait, S3RepositoryTrait},
+    service::{file::create::handle_file_created, metadata::MetadataServiceTrait, File},
     utils::string,
 };
 use aws_lambda_events::event::{
@@ -9,7 +10,12 @@ use aws_lambda_events::event::{
 };
 use tracing::{error, info};
 
-pub async fn handle_sqs_event(event: SqsEvent) -> Result<SqsBatchResponse, StorageError> {
+pub async fn handle_sqs_event(
+    event: SqsEvent,
+    s3_repository: &impl S3RepositoryTrait,
+    dynamo_db_repository: &impl DynamoDbRepositoryTrait,
+    metadata_service: &impl MetadataServiceTrait,
+) -> Result<SqsBatchResponse, StorageError> {
     info!("Received SQS batch with {} messages", event.records.len());
 
     let mut failures = Vec::new();
@@ -72,7 +78,19 @@ pub async fn handle_sqs_event(event: SqsEvent) -> Result<SqsBatchResponse, Stora
 
             match event {
                 name if name.starts_with("ObjectCreated:") => {
-                    handle_file_created(file).await?;
+                    if let Err(e) = handle_file_created(
+                        file,
+                        s3_repository,
+                        dynamo_db_repository,
+                        metadata_service,
+                    )
+                    .await
+                    {
+                        error!(message_id = %message_id, error = %e, "Failed to handle file creation");
+                        failures.push(BatchItemFailure {
+                            item_identifier: message_id.to_string(),
+                        });
+                    }
                 }
                 // name if name.starts_with("ObjectRemoved:") => {
                 //     handle_s3_object_removed(&client, &s3_event).await?;

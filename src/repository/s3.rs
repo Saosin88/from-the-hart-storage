@@ -26,8 +26,11 @@ impl S3Repository {
             client: get_s3_client().await,
         }
     }
+}
 
-    pub async fn get_object_metadata(
+#[async_trait::async_trait]
+impl crate::repository::S3RepositoryTrait for S3Repository {
+    async fn get_object_metadata(
         &self,
         bucket: &str,
         key: &str,
@@ -49,7 +52,7 @@ impl S3Repository {
         Ok(response)
     }
 
-    pub async fn fetch_head_bytes(
+    async fn fetch_head_bytes(
         &self,
         bucket: &str,
         key: &str,
