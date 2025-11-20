@@ -107,7 +107,7 @@ pub struct ViewLink {
     pub grant_id: Arc<str>,
     pub created_date: i64,
     pub folder_prefix: Arc<str>,
-    pub file_name: Arc<str>,
+    pub name: Arc<str>,
     pub media_type: Arc<str>,
     pub size_bytes: i64,
 }
@@ -121,7 +121,7 @@ impl ViewLink {
             grant_id: "OWNER".into(),
             created_date: file.created_date,
             folder_prefix: file.folder_prefix.clone(),
-            file_name: file.file_name.clone(),
+            name: file.file_name.clone(),
             media_type: file.media_type.to_string().into(),
             size_bytes: file.size_bytes,
         }
@@ -135,7 +135,7 @@ impl ViewLink {
             grant_id: "OWNER".into(),
             created_date: file.created_date,
             folder_prefix: get_parent_folder_path(full_folder_path).into(),
-            file_name: get_folder_name(full_folder_path).into(),
+            name: get_folder_name(full_folder_path).into(),
             media_type: "application/x-directory".into(),
             size_bytes: 0,
         }

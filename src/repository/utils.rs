@@ -23,6 +23,16 @@ pub fn view_link_to_dynamo_item(view_link: &ViewLink) -> HashMap<String, Attribu
 
     item.insert("SK".to_string(), AttributeValue::S(sk));
 
+    let item_type = if view_link.is_folder_marker() {
+        "FOLDER_VIEW_LINK"
+    } else {
+        "FILE_VIEW_LINK"
+    };
+
+    item.insert(
+        "item_type".to_string(),
+        AttributeValue::S(item_type.to_string()),
+    );
     item.insert(
         "resource_id".to_string(),
         AttributeValue::S(view_link.resource_id.to_string()),
@@ -44,8 +54,8 @@ pub fn view_link_to_dynamo_item(view_link: &ViewLink) -> HashMap<String, Attribu
         AttributeValue::S(view_link.folder_prefix.to_string()),
     );
     item.insert(
-        "file_name".to_string(),
-        AttributeValue::S(view_link.file_name.to_string()),
+        "name".to_string(),
+        AttributeValue::S(view_link.name.to_string()),
     );
     item.insert(
         "media_type".to_string(),
@@ -57,19 +67,23 @@ pub fn view_link_to_dynamo_item(view_link: &ViewLink) -> HashMap<String, Attribu
     );
 
     item.insert(
-        "GSI2-PK".to_string(),
+        "GSI2PK".to_string(),
         AttributeValue::S(format!(
             "VIEWER#{}#FOLDER#{}",
             view_link.viewer_id, view_link.folder_prefix
         )),
     );
-    item.insert(
-        "GSI2-SK".to_string(),
-        AttributeValue::S(format!(
+
+    let gsi2_sk = if view_link.is_folder_marker() {
+        format!("TYPE#FOLDER#{}#{}", view_link.name, view_link.owner_id)
+    } else {
+        format!(
             "TYPE#FILE#{}#{}#{}",
             view_link.created_date, view_link.media_type, view_link.resource_id
-        )),
-    );
+        )
+    };
+
+    item.insert("GSI2SK".to_string(), AttributeValue::S(gsi2_sk));
 
     item
 }

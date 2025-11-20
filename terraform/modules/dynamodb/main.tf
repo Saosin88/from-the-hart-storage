@@ -16,27 +16,27 @@ resource "aws_dynamodb_table" "table" {
 
 
   # attribute {
-  #   name = "GSI1-PK"
+  #   name = "GSI1PK"
   #   type = "S"
   # }
   # attribute {
-  #   name = "GSI1-SK"
+  #   name = "GSI1SK"
   #   type = "S"
   # }
 
   attribute {
-    name = "GSI2-PK"
+    name = "GSI2PK"
     type = "S"
   }
   attribute {
-    name = "GSI2-SK"
+    name = "GSI2SK"
     type = "S"
   }
 
   # global_secondary_index {
   #   name            = "grant-index"
-  #   hash_key        = "GSI1-PK"
-  #   range_key       = "GSI1-SK"
+  #   hash_key        = "GSI1PK"
+  #   range_key       = "GSI1SK"
   #   projection_type = "INCLUDE"
   #   non_key_attributes = [
   #     "grant_id",
@@ -52,15 +52,16 @@ resource "aws_dynamodb_table" "table" {
 
   global_secondary_index {
     name            = "view-link-index"
-    hash_key        = "GSI2-PK"
-    range_key       = "GSI2-SK"
+    hash_key        = "GSI2PK"
+    range_key       = "GSI2SK"
     projection_type = "INCLUDE"
     non_key_attributes = [
+      "item_type",
       "resource_id",
       "owner_id",
       "grant_id",
       "created_date",
-      "file_name",
+      "name",
       "folder_prefix",
       "media_type",
       "size_bytes",
