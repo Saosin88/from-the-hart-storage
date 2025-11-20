@@ -1,7 +1,7 @@
 pub fn calculate_folder_prefix(file_path: &str) -> String {
     let segments: Vec<&str> = file_path.split('/').collect();
     if segments.len() > 1 {
-        segments[..segments.len() - 1].join("/") + "/"
+        "/".to_string() + &segments[..segments.len() - 1].join("/") + "/"
     } else {
         "/".to_string()
     }
@@ -22,7 +22,7 @@ pub fn get_ancestor_folder_paths(file_path: &str) -> Vec<String> {
         .collect();
 
     for i in 1..=segments.len() {
-        let path = segments[..i].join("/") + "/";
+        let path = "/".to_string() + &segments[..i].join("/") + "/";
         ancestors.push(path);
     }
 
@@ -41,7 +41,7 @@ pub fn get_parent_folder_path(full_folder_path: &str) -> String {
             .filter(|s| !s.is_empty())
             .collect();
         if segments.len() > 1 {
-            segments[..segments.len() - 1].join("/") + "/"
+            "/".to_string() + &segments[..segments.len() - 1].join("/") + "/"
         } else {
             "/".to_string()
         }
@@ -72,13 +72,13 @@ mod tests {
     fn test_calculate_folder_prefix_nested() {
         assert_eq!(
             calculate_folder_prefix("media/photos/2024/vacation/img.jpg"),
-            "media/photos/2024/vacation/"
+            "/media/photos/2024/vacation/"
         );
     }
 
     #[test]
     fn test_calculate_folder_prefix_single_level() {
-        assert_eq!(calculate_folder_prefix("media/img.jpg"), "media/");
+        assert_eq!(calculate_folder_prefix("media/img.jpg"), "/media/");
     }
 
     #[test]
@@ -93,10 +93,10 @@ mod tests {
             result,
             vec![
                 "/",
-                "media/",
-                "media/photos/",
-                "media/photos/2024/",
-                "media/photos/2024/vacation/"
+                "/media/",
+                "/media/photos/",
+                "/media/photos/2024/",
+                "/media/photos/2024/vacation/"
             ]
         );
     }
@@ -104,7 +104,7 @@ mod tests {
     #[test]
     fn test_get_ancestor_folder_paths_single_level() {
         let result = get_ancestor_folder_paths("media/img.jpg");
-        assert_eq!(result, vec!["/", "media/"]);
+        assert_eq!(result, vec!["/", "/media/"]);
     }
 
     #[test]
@@ -116,14 +116,14 @@ mod tests {
     #[test]
     fn test_get_parent_folder_path_nested() {
         assert_eq!(
-            get_parent_folder_path("media/photos/2024/"),
-            "media/photos/"
+            get_parent_folder_path("/media/photos/2024/"),
+            "/media/photos/"
         );
     }
 
     #[test]
     fn test_get_parent_folder_path_single_level() {
-        assert_eq!(get_parent_folder_path("media/"), "/");
+        assert_eq!(get_parent_folder_path("/media/"), "/");
     }
 
     #[test]
