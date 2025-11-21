@@ -37,6 +37,10 @@ pub fn configure_routes() -> Router {
             routing::get_with(health::health, health::health_docs),
         )
         .route(
+            "/{user_id}",
+            axum::routing::get(list::list_files),
+        )
+        .route(
             "/{user_id}/{*path}",
             axum::routing::get(list::list_files),
         )

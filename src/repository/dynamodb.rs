@@ -150,7 +150,7 @@ impl crate::repository::DynamoDbRepositoryTrait for DynamoDbRepository {
 
                 let last_evaluated_key = super::utils::json_to_dynamo_key(&json).map_err(|e| StorageError::InvalidRequest {
                     context: "Invalid cursor data".to_string(),
-                    source: e.into(),
+                    source: e,
                 })?;
 
                 query = query.set_exclusive_start_key(Some(last_evaluated_key));
@@ -165,7 +165,7 @@ impl crate::repository::DynamoDbRepositoryTrait for DynamoDbRepository {
         let items = output.items.unwrap_or_default();
         let view_links: Result<Vec<ViewLink>, _> = items
             .iter()
-            .map(|item| super::utils::dynamo_item_to_view_link(item))
+            .map(super::utils::dynamo_item_to_view_link)
             .collect();
         let view_links = view_links?;
 

@@ -31,7 +31,8 @@ fn default_limit() -> i32 {
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct PathParams {
     pub user_id: String,
-    pub path: String,
+    #[serde(default)]
+    pub path: Option<String>,
 }
 
 pub async fn list_files(
@@ -39,8 +40,9 @@ pub async fn list_files(
     Query(params): Query<ListParams>,
 ) -> impl IntoApiResponse {
     let repo = DynamoDbRepository::new().await;
+    let path = path_params.path.as_deref().unwrap_or("");
     
-    match list::list_folder_contents(&path_params.user_id, &path_params.path, params.limit, params.cursor, &repo).await {
+    match list::list_folder_contents(&path_params.user_id, path, params.limit, params.cursor, &repo).await {
         Ok((items, next_cursor)) => {
             let response = StorageListResponse {
                 items: items.into_iter().map(ViewLink::from).collect(),
@@ -71,7 +73,6 @@ pub fn list_files_docs(op: TransformOperation) -> TransformOperation {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::handler::http::routes;
     use axum::http::StatusCode;
     use axum_test::TestServer;
@@ -80,7 +81,6 @@ mod tests {
     async fn test_list_files_endpoint_structure() {
         crate::utils::time::init_start_time();
         
-        // Initialize config for DynamoDBRepository
         std::env::set_var("APP_ENVIRONMENT", "test");
         std::env::set_var("APP_DYNAMODB_TABLE", "test-table");
         let _ = crate::config::init_config();
@@ -89,8 +89,15 @@ mod tests {
         let server = TestServer::new(app).unwrap();
         
         let response = server.get("/storage/sheldon/files/").await;
+
+        let response = server.get("/storage/sheldon/files").await;
+        assert_ne!(response.status_code(), StatusCode::NOT_FOUND, "Should match /storage/sheldon/files");
+
+        // Root with slash - should now be 404 because we removed the route
+        let response = server.get("/storage/sheldon/").await;
+        assert_eq!(response.status_code(), StatusCode::NOT_FOUND, "Should NOT match /storage/sheldon/");
         
-        // If the route matches, it shouldn't be 404.
-        assert_ne!(response.status_code(), StatusCode::NOT_FOUND);
+        let response = server.get("/storage/sheldon").await;
+        assert_ne!(response.status_code(), StatusCode::NOT_FOUND, "Should match /storage/sheldon");
     }
 }
