@@ -71,11 +71,6 @@ impl crate::repository::DynamoDbRepositoryTrait for DynamoDbRepository {
                 .table_name(&self.table_name)
                 .set_item(Some(view_item));
 
-            if view_link.is_folder {
-                put_builder = put_builder
-                    .condition_expression("attribute_not_exists(PK) AND attribute_not_exists(SK)");
-            }
-
             let put_view = put_builder.build().map_err(|e| StorageError::DynamoDb {
                 context: "Failed to build Put for view link".to_string(),
                 source: e.into(),
@@ -94,19 +89,13 @@ impl crate::repository::DynamoDbRepositoryTrait for DynamoDbRepository {
             {
                 Ok(_) => continue,
                 Err(e) => {
-                    let error_msg = e.to_string();
-                    if error_msg.contains("ConditionalCheckFailed") {
-                        tracing::debug!("Folder marker already exists in batch, continuing");
-                        continue;
-                    } else {
-                        return Err(StorageError::DynamoDb {
-                            context: format!(
-                                "Failed to execute DynamoDB transaction for batch (size: {})",
-                                batch.len()
-                            ),
-                            source: e.into(),
-                        });
-                    }
+                    return Err(StorageError::DynamoDb {
+                        context: format!(
+                            "Failed to execute DynamoDB transaction for batch (size: {})",
+                            batch.len()
+                        ),
+                        source: e.into(),
+                    });
                 }
             }
         }

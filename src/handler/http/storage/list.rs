@@ -7,13 +7,8 @@ use crate::{
     service::file::list,
 };
 use aide::{axum::IntoApiResponse, transform::TransformOperation};
-use axum::{
-    extract::Path,
-    http::StatusCode,
-    response::IntoResponse,
-    Json,
-};
 use axum::extract::Query;
+use axum::{extract::Path, http::StatusCode, response::IntoResponse, Json};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -41,8 +36,16 @@ pub async fn list_files(
 ) -> impl IntoApiResponse {
     let repo = DynamoDbRepository::new().await;
     let path = path_params.path.as_deref().unwrap_or("");
-    
-    match list::list_folder_contents(&path_params.user_id, path, params.limit, params.cursor, &repo).await {
+
+    match list::list_folder_contents(
+        &path_params.user_id,
+        path,
+        params.limit,
+        params.cursor,
+        &repo,
+    )
+    .await
+    {
         Ok((items, next_cursor)) => {
             let response = StorageListResponse {
                 items: items.into_iter().map(ViewLink::from).collect(),
@@ -80,24 +83,40 @@ mod tests {
     #[tokio::test]
     async fn test_list_files_endpoint_structure() {
         crate::utils::time::init_start_time();
-        
+
         std::env::set_var("APP_ENVIRONMENT", "test");
         std::env::set_var("APP_DYNAMODB_TABLE", "test-table");
         let _ = crate::config::init_config();
 
         let app = routes::configure_routes();
         let server = TestServer::new(app).unwrap();
-        
+
         let response = server.get("/storage/sheldon/files/").await;
+        assert_eq!(
+            response.status_code(),
+            StatusCode::NOT_FOUND,
+            "Should NOT match storage/sheldon/files/"
+        );
 
         let response = server.get("/storage/sheldon/files").await;
-        assert_ne!(response.status_code(), StatusCode::NOT_FOUND, "Should match /storage/sheldon/files");
+        assert_ne!(
+            response.status_code(),
+            StatusCode::NOT_FOUND,
+            "Should match /storage/sheldon/files"
+        );
 
-        // Root with slash - should now be 404 because we removed the route
         let response = server.get("/storage/sheldon/").await;
-        assert_eq!(response.status_code(), StatusCode::NOT_FOUND, "Should NOT match /storage/sheldon/");
-        
+        assert_eq!(
+            response.status_code(),
+            StatusCode::NOT_FOUND,
+            "Should NOT match /storage/sheldon/"
+        );
+
         let response = server.get("/storage/sheldon").await;
-        assert_ne!(response.status_code(), StatusCode::NOT_FOUND, "Should match /storage/sheldon");
+        assert_ne!(
+            response.status_code(),
+            StatusCode::NOT_FOUND,
+            "Should match /storage/sheldon"
+        );
     }
 }
