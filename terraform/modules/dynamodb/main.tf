@@ -51,7 +51,7 @@ resource "aws_dynamodb_table" "table" {
   # }
 
   global_secondary_index {
-    name            = var.gsi2_name
+    name            = "view-link-index"
     hash_key        = "GSI2PK"
     range_key       = "GSI2SK"
     projection_type = "INCLUDE"

@@ -67,7 +67,6 @@ module "dynamodb" {
   source = "../modules/dynamodb"
 
   name      = "from-the-hart-storage-dev"
-  gsi2_name = "view-link-index-dev"
 
   tags = {
     Domain      = "tech"
