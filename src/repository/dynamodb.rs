@@ -67,7 +67,6 @@ impl crate::repository::DynamoDbRepositoryTrait for DynamoDbRepository {
         for view_link in view_links {
             let view_item = view_link_to_dynamo_item(view_link);
 
-
             let mut put_builder = Put::builder()
                 .table_name(&self.table_name)
                 .set_item(Some(view_item));
@@ -128,7 +127,7 @@ impl crate::repository::DynamoDbRepositoryTrait for DynamoDbRepository {
             .client
             .query()
             .table_name(&self.table_name)
-            .index_name("GSI2")
+            .index_name("view-link-index")
             .key_condition_expression("GSI2PK = :pk")
             .expression_attribute_values(":pk", aws_sdk_dynamodb::types::AttributeValue::S(pk))
             .scan_index_forward(false)
@@ -142,15 +141,20 @@ impl crate::repository::DynamoDbRepositoryTrait for DynamoDbRepository {
                         context: "Invalid cursor format".to_string(),
                         source: e.into(),
                     })?;
-                
-                let json: serde_json::Value = serde_json::from_slice(&decoded_bytes).map_err(|e| StorageError::InvalidRequest {
-                    context: "Invalid cursor JSON".to_string(),
-                    source: e.into(),
-                })?;
 
-                let last_evaluated_key = super::utils::json_to_dynamo_key(&json).map_err(|e| StorageError::InvalidRequest {
-                    context: "Invalid cursor data".to_string(),
-                    source: e,
+                let json: serde_json::Value =
+                    serde_json::from_slice(&decoded_bytes).map_err(|e| {
+                        StorageError::InvalidRequest {
+                            context: "Invalid cursor JSON".to_string(),
+                            source: e.into(),
+                        }
+                    })?;
+
+                let last_evaluated_key = super::utils::json_to_dynamo_key(&json).map_err(|e| {
+                    StorageError::InvalidRequest {
+                        context: "Invalid cursor data".to_string(),
+                        source: e,
+                    }
                 })?;
 
                 query = query.set_exclusive_start_key(Some(last_evaluated_key));
@@ -172,12 +176,11 @@ impl crate::repository::DynamoDbRepositoryTrait for DynamoDbRepository {
         let next_cursor = if let Some(last_evaluated_key) = output.last_evaluated_key {
             if !last_evaluated_key.is_empty() {
                 let json = super::utils::dynamo_key_to_json(&last_evaluated_key);
-                let json_bytes = serde_json::to_vec(&json).map_err(|e| {
-                    StorageError::Serialization {
+                let json_bytes =
+                    serde_json::to_vec(&json).map_err(|e| StorageError::Serialization {
                         context: "Failed to serialize cursor".to_string(),
                         source: e.into(),
-                    }
-                })?;
+                    })?;
                 Some(base64::prelude::BASE64_STANDARD.encode(json_bytes))
             } else {
                 None
