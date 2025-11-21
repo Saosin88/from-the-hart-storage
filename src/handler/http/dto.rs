@@ -85,3 +85,43 @@ pub struct StorageListResponse {
     #[schemars(description = "Cursor for pagination")]
     pub next_cursor: Option<String>,
 }
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[schemars(description = "Detailed file information")]
+pub struct FileDto {
+    pub bucket_key: String,
+    pub bucket: String,
+    pub owner_id: String,
+    pub file_id: String,
+    pub file_name: String,
+    pub file_path: String,
+    pub folder_prefix: String,
+    pub created_date: i64,
+    pub size_bytes: i64,
+    pub content_type: String,
+    pub media_type: String,
+    pub media_metadata: Option<serde_json::Value>,
+}
+
+impl From<crate::service::models::File> for FileDto {
+    fn from(model: crate::service::models::File) -> Self {
+        let media_metadata = model.media_metadata.as_ref().and_then(|m| {
+            serde_json::to_value(m).ok()
+        });
+
+        Self {
+            bucket_key: model.bucket_key.to_string(),
+            bucket: model.bucket.to_string(),
+            owner_id: model.owner_id.to_string(),
+            file_id: model.file_id.to_string(),
+            file_name: model.file_name.to_string(),
+            file_path: model.file_path.to_string(),
+            folder_prefix: model.folder_prefix.to_string(),
+            created_date: model.created_date,
+            size_bytes: model.size_bytes,
+            content_type: model.content_type.to_string(),
+            media_type: model.media_type.to_string(),
+            media_metadata,
+        }
+    }
+}

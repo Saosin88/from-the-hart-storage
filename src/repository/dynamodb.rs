@@ -180,4 +180,29 @@ impl crate::repository::DynamoDbRepositoryTrait for DynamoDbRepository {
 
         Ok((view_links, next_cursor))
     }
+
+    async fn get_file(&self, user_id: &str, file_path: &str) -> Result<Option<File>, StorageError> {
+        let pk = format!("USER#{}", user_id);
+        let sk = format!("FILE#{}", file_path);
+
+        let output = self
+            .client
+            .get_item()
+            .table_name(&self.table_name)
+            .key("PK", aws_sdk_dynamodb::types::AttributeValue::S(pk))
+            .key("SK", aws_sdk_dynamodb::types::AttributeValue::S(sk))
+            .send()
+            .await
+            .map_err(|e| StorageError::DynamoDb {
+                context: "Failed to get file".to_string(),
+                source: e.into(),
+            })?;
+
+        if let Some(item) = output.item {
+            let file = super::utils::dynamo_item_to_file(&item)?;
+            Ok(Some(file))
+        } else {
+            Ok(None)
+        }
+    }
 }

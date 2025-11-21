@@ -30,47 +30,79 @@ pub struct PathParams {
     pub path: Option<String>,
 }
 
-pub async fn list_files(
+use crate::handler::http::dto::FileDto;
+
+pub async fn handle_file_request(
     Path(path_params): Path<PathParams>,
     Query(params): Query<ListParams>,
 ) -> impl IntoApiResponse {
     let repo = DynamoDbRepository::new().await;
     let path = path_params.path.as_deref().unwrap_or("");
 
-    match list::list_folder_contents(
-        &path_params.user_id,
-        path,
-        params.limit,
-        params.cursor,
-        &repo,
-    )
-    .await
-    {
-        Ok((items, next_cursor)) => {
-            let response = StorageListResponse {
-                items: items.into_iter().map(ViewLink::from).collect(),
-                next_cursor,
-            };
-            (StatusCode::OK, Json(response)).into_response()
+    // Strict Strategy:
+    // - Ends with '/' or is empty -> Folder Listing
+    // - Otherwise -> File Retrieval
+
+    if path.is_empty() || path.ends_with('/') {
+        // Folder Listing
+        match list::list_folder_contents(
+            &path_params.user_id,
+            path,
+            params.limit,
+            params.cursor,
+            &repo,
+        )
+        .await
+        {
+            Ok((items, next_cursor)) => {
+                let response = StorageListResponse {
+                    items: items.into_iter().map(ViewLink::from).collect(),
+                    next_cursor,
+                };
+                (StatusCode::OK, Json(response)).into_response()
+            }
+            Err(err) => {
+                let http_error = HttpError::from(err);
+                http_error.into_response()
+            }
         }
-        Err(err) => {
-            let http_error = HttpError::from(err);
-            http_error.into_response()
+    } else {
+        // File Retrieval
+        match crate::service::file::get::get_file(&path_params.user_id, path, &repo).await {
+            Ok(Some(file)) => {
+                let response = FileDto::from(file);
+                (StatusCode::OK, Json(response)).into_response()
+            }
+            Ok(None) => {
+                // File not found. Since strict strategy, we return 404.
+                // We don't fall back to folder listing.
+                (StatusCode::NOT_FOUND, Json(crate::handler::http::error::HttpErrorResponse {
+                    code: "not_found".to_string(),
+                    message: "File not found".to_string(),
+                    details: None,
+                })).into_response()
+            }
+            Err(err) => {
+                let http_error = HttpError::from(err);
+                http_error.into_response()
+            }
         }
     }
 }
 
-pub fn list_files_docs(op: TransformOperation) -> TransformOperation {
+pub fn handle_file_request_docs(op: TransformOperation) -> TransformOperation {
     op.description(
-        "List files and folders in a specific path for a user.\n\n\
-        This endpoint returns a paginated list of files and folders contained within the specified path.\n\
-        Results are sorted with folders first, then files, both in descending order of creation.\n\
-        Use the `cursor` parameter from the response to fetch the next page of results.",
+        "Get file details or list folder contents.\n\n\
+        - **Folder Listing**: Request path must end with a trailing slash (e.g., `/storage/{user_id}/foo/`). Returns a list of files and folders.\n\
+        - **File Retrieval**: Request path must NOT have a trailing slash (e.g., `/storage/{user_id}/foo`). Returns file metadata.\n\n\
+        If a folder is requested without a trailing slash, it will be treated as a file request and return 404 if no such file exists.",
     )
-    .summary("List files and folders")
+    .summary("Get file or list folder")
     .tag("Storage")
     .response::<200, Json<StorageListResponse>>()
+    .response::<200, Json<FileDto>>()
     .response::<400, Json<crate::handler::http::error::HttpErrorResponse>>()
+    .response::<404, Json<crate::handler::http::error::HttpErrorResponse>>()
     .response::<500, Json<crate::handler::http::error::HttpErrorResponse>>()
 }
 
@@ -92,24 +124,24 @@ mod tests {
         let server = TestServer::new(app).unwrap();
 
         let response = server.get("/storage/sheldon/files/").await;
-        assert_eq!(
+        assert_ne!(
             response.status_code(),
             StatusCode::NOT_FOUND,
-            "Should NOT match storage/sheldon/files/"
+            "Should match storage/sheldon/files/ (Folder listing)"
         );
 
         let response = server.get("/storage/sheldon/files").await;
         assert_ne!(
             response.status_code(),
             StatusCode::NOT_FOUND,
-            "Should match /storage/sheldon/files"
+            "Should match /storage/sheldon/files (File retrieval)"
         );
 
         let response = server.get("/storage/sheldon/").await;
-        assert_eq!(
+        assert_ne!(
             response.status_code(),
             StatusCode::NOT_FOUND,
-            "Should NOT match /storage/sheldon/"
+            "Should match /storage/sheldon/ (Root folder listing)"
         );
 
         let response = server.get("/storage/sheldon").await;

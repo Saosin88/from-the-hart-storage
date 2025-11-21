@@ -22,6 +22,8 @@ pub trait DynamoDbRepositoryTrait: Send + Sync {
         limit: i32,
         cursor: Option<String>,
     ) -> Result<(Vec<ViewLink>, Option<String>), StorageError>;
+
+    async fn get_file(&self, user_id: &str, file_path: &str) -> Result<Option<File>, StorageError>;
 }
 
 #[async_trait]

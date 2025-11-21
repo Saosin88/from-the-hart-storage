@@ -38,11 +38,15 @@ pub fn configure_routes() -> Router {
         )
         .route(
             "/{user_id}",
-            axum::routing::get(list::list_files),
+            axum::routing::get(list::handle_file_request),
+        )
+        .route(
+            "/{user_id}/",
+            axum::routing::get(list::handle_file_request),
         )
         .route(
             "/{user_id}/{*path}",
-            axum::routing::get(list::list_files),
+            axum::routing::get(list::handle_file_request),
         )
         .route(
             "/openapi.json",

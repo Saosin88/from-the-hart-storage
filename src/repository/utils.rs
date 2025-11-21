@@ -302,3 +302,111 @@ fn json_to_attribute_value(json: &serde_json::Value) -> Result<AttributeValue, a
         serde_json::Value::Number(n) => Ok(AttributeValue::N(n.to_string())),
     }
 }
+
+pub fn dynamo_item_to_file(item: &HashMap<String, AttributeValue>) -> Result<File, crate::error::StorageError> {
+    let bucket_key = item.get("bucket_key")
+        .and_then(|v| v.as_s().ok())
+        .ok_or_else(|| crate::error::StorageError::DynamoDb {
+            context: "Missing bucket_key".to_string(),
+            source: anyhow::anyhow!("Missing bucket_key"),
+        })?
+        .to_string();
+
+    let bucket = item.get("bucket")
+        .and_then(|v| v.as_s().ok())
+        .ok_or_else(|| crate::error::StorageError::DynamoDb {
+            context: "Missing bucket".to_string(),
+            source: anyhow::anyhow!("Missing bucket"),
+        })?
+        .to_string();
+
+    let owner_id = item.get("owner_id")
+        .and_then(|v| v.as_s().ok())
+        .ok_or_else(|| crate::error::StorageError::DynamoDb {
+            context: "Missing owner_id".to_string(),
+            source: anyhow::anyhow!("Missing owner_id"),
+        })?
+        .to_string();
+
+    let file_id = item.get("resource_id")
+        .and_then(|v| v.as_s().ok())
+        .ok_or_else(|| crate::error::StorageError::DynamoDb {
+            context: "Missing resource_id".to_string(),
+            source: anyhow::anyhow!("Missing resource_id"),
+        })?
+        .to_string();
+
+    let file_name = item.get("file_name")
+        .and_then(|v| v.as_s().ok())
+        .ok_or_else(|| crate::error::StorageError::DynamoDb {
+            context: "Missing file_name".to_string(),
+            source: anyhow::anyhow!("Missing file_name"),
+        })?
+        .to_string();
+
+    let file_path = item.get("file_path")
+        .and_then(|v| v.as_s().ok())
+        .ok_or_else(|| crate::error::StorageError::DynamoDb {
+            context: "Missing file_path".to_string(),
+            source: anyhow::anyhow!("Missing file_path"),
+        })?
+        .to_string();
+
+    let folder_prefix = item.get("folder_prefix")
+        .and_then(|v| v.as_s().ok())
+        .unwrap_or(&"".to_string())
+        .to_string();
+
+    let created_date = item.get("created_date")
+        .and_then(|v| v.as_n().ok())
+        .and_then(|n| n.parse::<i64>().ok())
+        .unwrap_or(0);
+
+    let size_bytes = item.get("size_bytes")
+        .and_then(|v| v.as_n().ok())
+        .and_then(|n| n.parse::<i64>().ok())
+        .unwrap_or(0);
+
+    let content_type = item.get("content_type")
+        .and_then(|v| v.as_s().ok())
+        .unwrap_or(&"application/octet-stream".to_string())
+        .to_string();
+
+    let media_type_str = item.get("media_type")
+        .and_then(|v| v.as_s().ok())
+        .unwrap_or(&"Unknown".to_string())
+        .to_string();
+
+    let media_type = match media_type_str.as_str() {
+        "Image" => crate::service::models::MediaType::Image,
+        "Video" => crate::service::models::MediaType::Video,
+        "Audio" => crate::service::models::MediaType::Audio,
+        "Document" => crate::service::models::MediaType::Document,
+        _ => crate::service::models::MediaType::Unknown,
+    };
+
+    let media_metadata = if let Some(meta_av) = item.get("MediaMetadata") {
+        if let Ok(meta_str) = meta_av.as_s() {
+            serde_json::from_str(meta_str).ok()
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    Ok(File {
+        bucket_key: bucket_key.into(),
+        bucket: bucket.into(),
+        owner_id: owner_id.into(),
+        file_id: file_id.into(),
+        file_name: file_name.into(),
+        file_path: file_path.into(),
+        folder_prefix: folder_prefix.into(),
+        created_date,
+        size_bytes,
+        content_type: content_type.into(),
+        media_type,
+        media_metadata,
+    })
+}
