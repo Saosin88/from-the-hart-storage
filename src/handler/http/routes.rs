@@ -1,4 +1,5 @@
-use crate::handler::http::health;
+use crate::handler::http::storage::{health, list};
+
 use aide::{
     axum::{routing, ApiRouter},
     openapi::OpenApi,
@@ -34,6 +35,10 @@ pub fn configure_routes() -> Router {
         .api_route(
             "/health",
             routing::get_with(health::health, health::health_docs),
+        )
+        .route(
+            "/{user_id}/{*path}",
+            axum::routing::get(list::list_files),
         )
         .route(
             "/openapi.json",

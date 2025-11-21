@@ -1290,6 +1290,7 @@ dependencies = [
  "aws_lambda_events",
  "axum",
  "axum-test",
+ "base64 0.22.1",
  "chrono",
  "chrono-tz",
  "config",

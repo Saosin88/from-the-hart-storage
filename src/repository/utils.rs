@@ -159,3 +159,146 @@ pub fn file_to_dynamo_item(file: &File) -> HashMap<String, AttributeValue> {
 
     item
 }
+
+pub fn dynamo_item_to_view_link(item: &HashMap<String, AttributeValue>) -> Result<ViewLink, crate::error::StorageError> {
+    let viewer_id = item.get("PK")
+        .and_then(|v| v.as_s().ok())
+        .and_then(|s| s.strip_prefix("USER#"))
+        .ok_or_else(|| crate::error::StorageError::DynamoDb {
+            context: "Missing or invalid PK".to_string(),
+            source: anyhow::anyhow!("Missing PK"),
+        })?
+        .to_string();
+
+    let resource_id = item.get("resource_id")
+        .and_then(|v| v.as_s().ok())
+        .ok_or_else(|| crate::error::StorageError::DynamoDb {
+            context: "Missing resource_id".to_string(),
+            source: anyhow::anyhow!("Missing resource_id"),
+        })?
+        .to_string();
+
+    let owner_id = item.get("owner_id")
+        .and_then(|v| v.as_s().ok())
+        .ok_or_else(|| crate::error::StorageError::DynamoDb {
+            context: "Missing owner_id".to_string(),
+            source: anyhow::anyhow!("Missing owner_id"),
+        })?
+        .to_string();
+
+    let grant_id = item.get("grant_id")
+        .and_then(|v| v.as_s().ok())
+        .ok_or_else(|| crate::error::StorageError::DynamoDb {
+            context: "Missing grant_id".to_string(),
+            source: anyhow::anyhow!("Missing grant_id"),
+        })?
+        .to_string();
+
+    let created_date = item.get("created_date")
+        .and_then(|v| v.as_n().ok())
+        .and_then(|n| n.parse::<i64>().ok())
+        .unwrap_or(0);
+
+    let folder_prefix = item.get("folder_prefix")
+        .and_then(|v| v.as_s().ok())
+        .unwrap_or(&"".to_string())
+        .to_string();
+
+    let name = item.get("name")
+        .and_then(|v| v.as_s().ok())
+        .unwrap_or(&"".to_string())
+        .to_string();
+
+    let media_type = item.get("media_type")
+        .and_then(|v| v.as_s().ok())
+        .unwrap_or(&"".to_string())
+        .to_string();
+
+    let size_bytes = item.get("size_bytes")
+        .and_then(|v| v.as_n().ok())
+        .and_then(|n| n.parse::<i64>().ok())
+        .unwrap_or(0);
+
+    let item_type = item.get("item_type")
+        .and_then(|v| v.as_s().ok())
+        .unwrap_or(&"".to_string())
+        .to_string();
+
+    let is_folder = item_type == "FOLDER_VIEW_LINK";
+
+    Ok(ViewLink {
+        viewer_id: viewer_id.into(),
+        resource_id: resource_id.into(),
+        owner_id: owner_id.into(),
+        grant_id: grant_id.into(),
+        created_date,
+        folder_prefix: folder_prefix.into(),
+        name: name.into(),
+        media_type: media_type.into(),
+        size_bytes,
+        is_folder,
+    })
+}
+
+pub fn dynamo_key_to_json(key: &HashMap<String, AttributeValue>) -> serde_json::Value {
+    let mut map = serde_json::Map::new();
+    for (k, v) in key {
+        map.insert(k.clone(), attribute_value_to_json(v));
+    }
+    serde_json::Value::Object(map)
+}
+
+pub fn json_to_dynamo_key(json: &serde_json::Value) -> Result<HashMap<String, AttributeValue>, anyhow::Error> {
+    if let serde_json::Value::Object(map) = json {
+        let mut key = HashMap::new();
+        for (k, v) in map {
+            key.insert(k.clone(), json_to_attribute_value(v)?);
+        }
+        Ok(key)
+    } else {
+        Err(anyhow::anyhow!("Invalid cursor JSON format"))
+    }
+}
+
+fn attribute_value_to_json(av: &AttributeValue) -> serde_json::Value {
+    match av {
+        AttributeValue::S(s) => serde_json::Value::String(s.clone()),
+        AttributeValue::N(n) => serde_json::Value::String(n.clone()), // Keep numbers as strings to avoid precision loss
+        AttributeValue::Bool(b) => serde_json::Value::Bool(*b),
+        AttributeValue::Null(_) => serde_json::Value::Null,
+        AttributeValue::M(m) => {
+            let mut map = serde_json::Map::new();
+            for (k, v) in m {
+                map.insert(k.clone(), attribute_value_to_json(v));
+            }
+            serde_json::Value::Object(map)
+        }
+        AttributeValue::L(l) => {
+            serde_json::Value::Array(l.iter().map(attribute_value_to_json).collect())
+        }
+        _ => serde_json::Value::Null,
+    }
+}
+
+fn json_to_attribute_value(json: &serde_json::Value) -> Result<AttributeValue, anyhow::Error> {
+    match json {
+        serde_json::Value::String(s) => Ok(AttributeValue::S(s.clone())),
+        serde_json::Value::Bool(b) => Ok(AttributeValue::Bool(*b)),
+        serde_json::Value::Null => Ok(AttributeValue::Null(true)),
+        serde_json::Value::Object(m) => {
+            let mut map = HashMap::new();
+            for (k, v) in m {
+                map.insert(k.clone(), json_to_attribute_value(v)?);
+            }
+            Ok(AttributeValue::M(map))
+        }
+        serde_json::Value::Array(l) => {
+            let mut list = Vec::new();
+            for v in l {
+                list.push(json_to_attribute_value(v)?);
+            }
+            Ok(AttributeValue::L(list))
+        }
+        serde_json::Value::Number(n) => Ok(AttributeValue::N(n.to_string())),
+    }
+}

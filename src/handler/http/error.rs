@@ -106,6 +106,13 @@ impl From<StorageError> for HttpError {
                 "Invalid format encountered".to_string(),
                 Some(context),
             ),
+            StorageError::InvalidRequest { context, .. } => HttpError::new(
+                StatusCode::BAD_REQUEST,
+                "INVALID_REQUEST".to_string(),
+                "Invalid request parameters".to_string(),
+                Some(context),
+            ),
         }
+
     }
 }

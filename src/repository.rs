@@ -14,6 +14,14 @@ pub trait DynamoDbRepositoryTrait: Send + Sync {
         file: &File,
         view_links: &[ViewLink],
     ) -> Result<(), StorageError>;
+
+    async fn find_view_links_by_folder(
+        &self,
+        user_id: &str,
+        folder_path: &str,
+        limit: i32,
+        cursor: Option<String>,
+    ) -> Result<(Vec<ViewLink>, Option<String>), StorageError>;
 }
 
 #[async_trait]

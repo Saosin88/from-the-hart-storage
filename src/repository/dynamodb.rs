@@ -2,6 +2,7 @@ use aws_sdk_dynamodb::{
     types::{Put, TransactWriteItem},
     Client,
 };
+use base64::Engine;
 use std::sync::Arc;
 use tokio::sync::OnceCell;
 
@@ -112,5 +113,79 @@ impl crate::repository::DynamoDbRepositoryTrait for DynamoDbRepository {
         }
 
         Ok(())
+    }
+
+    async fn find_view_links_by_folder(
+        &self,
+        user_id: &str,
+        folder_path: &str,
+        limit: i32,
+        cursor: Option<String>,
+    ) -> Result<(Vec<ViewLink>, Option<String>), StorageError> {
+        let pk = format!("VIEWER#{}#FOLDER#{}", user_id, folder_path);
+
+        let mut query = self
+            .client
+            .query()
+            .table_name(&self.table_name)
+            .index_name("GSI2")
+            .key_condition_expression("GSI2PK = :pk")
+            .expression_attribute_values(":pk", aws_sdk_dynamodb::types::AttributeValue::S(pk))
+            .scan_index_forward(false)
+            .limit(limit);
+
+        if let Some(cursor_str) = cursor {
+            if !cursor_str.is_empty() {
+                let decoded_bytes = base64::prelude::BASE64_STANDARD
+                    .decode(cursor_str)
+                    .map_err(|e| StorageError::InvalidRequest {
+                        context: "Invalid cursor format".to_string(),
+                        source: e.into(),
+                    })?;
+                
+                let json: serde_json::Value = serde_json::from_slice(&decoded_bytes).map_err(|e| StorageError::InvalidRequest {
+                    context: "Invalid cursor JSON".to_string(),
+                    source: e.into(),
+                })?;
+
+                let last_evaluated_key = super::utils::json_to_dynamo_key(&json).map_err(|e| StorageError::InvalidRequest {
+                    context: "Invalid cursor data".to_string(),
+                    source: e.into(),
+                })?;
+
+                query = query.set_exclusive_start_key(Some(last_evaluated_key));
+            }
+        }
+
+        let output = query.send().await.map_err(|e| StorageError::DynamoDb {
+            context: "Failed to query view links".to_string(),
+            source: e.into(),
+        })?;
+
+        let items = output.items.unwrap_or_default();
+        let view_links: Result<Vec<ViewLink>, _> = items
+            .iter()
+            .map(|item| super::utils::dynamo_item_to_view_link(item))
+            .collect();
+        let view_links = view_links?;
+
+        let next_cursor = if let Some(last_evaluated_key) = output.last_evaluated_key {
+            if !last_evaluated_key.is_empty() {
+                let json = super::utils::dynamo_key_to_json(&last_evaluated_key);
+                let json_bytes = serde_json::to_vec(&json).map_err(|e| {
+                    StorageError::Serialization {
+                        context: "Failed to serialize cursor".to_string(),
+                        source: e.into(),
+                    }
+                })?;
+                Some(base64::prelude::BASE64_STANDARD.encode(json_bytes))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        Ok((view_links, next_cursor))
     }
 }

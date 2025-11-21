@@ -2,6 +2,13 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum StorageError {
+    #[error("Invalid request: {context}")]
+    InvalidRequest {
+        context: String,
+        #[source]
+        source: anyhow::Error,
+    },
+
     #[error("Service not initialized: {context}")]
     NotInitialized {
         context: String,
