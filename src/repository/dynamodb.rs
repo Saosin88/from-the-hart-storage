@@ -67,7 +67,7 @@ impl crate::repository::DynamoDbRepositoryTrait for DynamoDbRepository {
         for view_link in view_links {
             let view_item = view_link_to_dynamo_item(view_link);
 
-            let mut put_builder = Put::builder()
+            let put_builder = Put::builder()
                 .table_name(&self.table_name)
                 .set_item(Some(view_item));
 

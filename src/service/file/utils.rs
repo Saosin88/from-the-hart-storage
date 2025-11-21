@@ -55,7 +55,6 @@ pub fn get_folder_name(full_folder_path: &str) -> String {
             .next_back()
             .unwrap_or(full_folder_path.trim_end_matches('/'))
             .to_string()
-            + "/"
     } else {
         full_folder_path.to_string()
     }
@@ -129,12 +128,12 @@ mod tests {
 
     #[test]
     fn test_get_folder_name_nested() {
-        assert_eq!(get_folder_name("media/photos/2024/"), "2024/");
+        assert_eq!(get_folder_name("media/photos/2024/"), "2024");
     }
 
     #[test]
     fn test_get_folder_name_single_level() {
-        assert_eq!(get_folder_name("media/"), "media/");
+        assert_eq!(get_folder_name("media/"), "media");
     }
 
     #[test]
