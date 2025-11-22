@@ -6,10 +6,11 @@ use aws_sdk_s3::operation::head_object::HeadObjectOutput;
 use std::sync::{Arc, Mutex};
 
 type FetchHeadBytesResponse = Arc<Mutex<Option<Result<Vec<u8>, StorageError>>>>;
+type HeadObjectResponse = Arc<Mutex<Option<Result<HeadObjectOutput, StorageError>>>>;
 
 #[derive(Clone)]
 pub struct MockS3Repository {
-    pub head_object_response: Arc<Mutex<Option<Result<HeadObjectOutput, StorageError>>>>,
+    pub head_object_response: HeadObjectResponse,
     pub fetch_head_bytes_response: FetchHeadBytesResponse,
 }
 
@@ -73,11 +74,16 @@ impl S3RepositoryTrait for MockS3Repository {
 }
 
 type PutFileCall = (File, Vec<ViewLink>);
+type PutFileResponse = Arc<Mutex<Option<Result<(), StorageError>>>>;
+type FindViewLinksResponse = Arc<Mutex<Option<Result<(Vec<ViewLink>, Option<String>), StorageError>>>>;
+type GetFileResponse = Arc<Mutex<Option<Result<Option<File>, StorageError>>>>;
 
 #[derive(Clone)]
 pub struct MockDynamoDbRepository {
     pub put_file_calls: Arc<Mutex<Vec<PutFileCall>>>,
-    pub put_file_response: Arc<Mutex<Option<Result<(), StorageError>>>>,
+    pub put_file_response: PutFileResponse,
+    pub find_view_links_response: FindViewLinksResponse,
+    pub get_file_response: GetFileResponse,
 }
 
 impl Default for MockDynamoDbRepository {
@@ -85,6 +91,8 @@ impl Default for MockDynamoDbRepository {
         Self {
             put_file_calls: Arc::new(Mutex::new(Vec::new())),
             put_file_response: Arc::new(Mutex::new(Some(Ok(())))),
+            find_view_links_response: Arc::new(Mutex::new(None)),
+            get_file_response: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -96,6 +104,16 @@ impl MockDynamoDbRepository {
 
     pub fn with_put_file_response(self, response: Result<(), StorageError>) -> Self {
         *self.put_file_response.lock().unwrap() = Some(response);
+        self
+    }
+
+    pub fn with_find_view_links_response(self, response: Result<(Vec<ViewLink>, Option<String>), StorageError>) -> Self {
+        *self.find_view_links_response.lock().unwrap() = Some(response);
+        self
+    }
+
+    pub fn with_get_file_response(self, response: Result<Option<File>, StorageError>) -> Self {
+        *self.get_file_response.lock().unwrap() = Some(response);
         self
     }
 }
@@ -133,10 +151,34 @@ impl DynamoDbRepositoryTrait for MockDynamoDbRepository {
         _limit: i32,
         _cursor: Option<String>,
     ) -> Result<(Vec<ViewLink>, Option<String>), StorageError> {
+        let mut lock = self.find_view_links_response.lock().unwrap();
+        if let Some(response) = lock.take() {
+             return response;
+        }
         Ok((vec![], None))
     }
 
     async fn get_file(&self, _user_id: &str, _file_path: &str) -> Result<Option<File>, StorageError> {
+        let mut lock = self.get_file_response.lock().unwrap();
+        if let Some(response) = lock.take() {
+             return response;
+        }
         Ok(None)
     }
+}
+
+use crate::service::metadata::MetadataServiceTrait;
+
+#[derive(Clone, Default)]
+pub struct MockMetadataService;
+
+impl MockMetadataService {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[async_trait]
+impl MetadataServiceTrait for MockMetadataService {
+    async fn extract_metadata(&self, _head_bytes: &[u8], _file: &mut File) {}
 }

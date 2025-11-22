@@ -12,7 +12,7 @@ pub struct HealthStatus {
     pub timestamp: u128,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct File {
     pub bucket_key: Arc<str>,
     pub bucket: Arc<str>,
@@ -69,13 +69,13 @@ impl fmt::Display for MediaType {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum MediaMetadata {
     Image(ImageMetadata),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ImageMetadata {
     pub width: u32,
     pub height: u32,
@@ -83,7 +83,7 @@ pub struct ImageMetadata {
     pub gps: Option<GpsCoordinates>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GpsCoordinates {
     pub latitude: f64,
     pub longitude: f64,
@@ -99,7 +99,7 @@ impl GpsCoordinates {
         }
     }
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ViewLink {
     pub viewer_id: Arc<str>,
     pub resource_id: Arc<str>,

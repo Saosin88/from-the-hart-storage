@@ -14,9 +14,9 @@ use tracing::{error, info};
 
 pub async fn handle_file_created(
     file: File,
-    s3_repository: &impl S3RepositoryTrait,
-    dynamo_db_repository: &impl DynamoDbRepositoryTrait,
-    metadata_service: &impl MetadataServiceTrait,
+    s3_repository: &(impl S3RepositoryTrait + ?Sized),
+    dynamo_db_repository: &(impl DynamoDbRepositoryTrait + ?Sized),
+    metadata_service: &(impl MetadataServiceTrait + ?Sized),
 ) -> Result<(), StorageError> {
     let bucket = file.bucket.clone();
     let key = file.bucket_key.clone();
@@ -82,7 +82,7 @@ fn parse_and_init_file(mut file: File) -> Result<File, StorageError> {
     Ok(file)
 }
 
-async fn enrich_with_s3_metadata(file: &mut File, s3_repository: &impl S3RepositoryTrait) {
+async fn enrich_with_s3_metadata(file: &mut File, s3_repository: &(impl S3RepositoryTrait + ?Sized)) {
     match s3_repository
         .get_object_metadata(&file.bucket, &file.bucket_key)
         .await
@@ -123,8 +123,8 @@ async fn enrich_with_s3_metadata(file: &mut File, s3_repository: &impl S3Reposit
 
 async fn enrich_with_media_metadata(
     file: &mut File,
-    s3_repository: &impl S3RepositoryTrait,
-    metadata_service: &impl MetadataServiceTrait,
+    s3_repository: &(impl S3RepositoryTrait + ?Sized),
+    metadata_service: &(impl MetadataServiceTrait + ?Sized),
 ) -> Result<(), StorageError> {
     let num_bytes = std::cmp::min(512 * 1024, file.size_bytes as u64);
 

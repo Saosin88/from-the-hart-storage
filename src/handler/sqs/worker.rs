@@ -1,7 +1,7 @@
 use crate::{
     error::StorageError,
-    repository::{DynamoDbRepositoryTrait, S3RepositoryTrait},
-    service::{file::create::handle_file_created, metadata::MetadataServiceTrait, File},
+    service::{file::create::handle_file_created, File},
+    state::AppState,
     utils::string,
 };
 use aws_lambda_events::event::{
@@ -13,9 +13,7 @@ use tracing::{error, info};
 
 pub async fn handle_sqs_event(
     event: SqsEvent,
-    s3_repository: &impl S3RepositoryTrait,
-    dynamo_db_repository: &impl DynamoDbRepositoryTrait,
-    metadata_service: &impl MetadataServiceTrait,
+    state: &AppState,
 ) -> Result<SqsBatchResponse, StorageError> {
     info!("Received SQS batch with {} messages", event.records.len());
 
@@ -105,9 +103,9 @@ pub async fn handle_sqs_event(
                 name if name.starts_with("ObjectCreated:") => {
                     if let Err(e) = handle_file_created(
                         file,
-                        s3_repository,
-                        dynamo_db_repository,
-                        metadata_service,
+                        state.s3_repository.as_ref(),
+                        state.dynamo_db_repository.as_ref(),
+                        state.metadata_service.as_ref(),
                     )
                     .await
                     {
@@ -135,4 +133,89 @@ pub async fn handle_sqs_event(
     Ok(SqsBatchResponse {
         batch_item_failures: failures,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::repository::mock::{MockDynamoDbRepository, MockS3Repository, MockMetadataService};
+    use aws_lambda_events::event::sqs::SqsMessage;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn test_handle_sqs_event_success() {
+        let s3_mock = MockS3Repository::new();
+        let dynamodb_mock = MockDynamoDbRepository::new();
+        let metadata_mock = MockMetadataService::new();
+
+        // Construct a valid S3 event inside SQS message
+        let s3_event_json = r#"{
+            "Records": [
+                {
+                    "eventVersion": "2.0",
+                    "eventSource": "aws:s3",
+                    "awsRegion": "us-east-1",
+                    "eventTime": "1970-01-01T00:00:00.000Z",
+                    "eventName": "ObjectCreated:Put",
+                    "userIdentity": {
+                        "principalId": "EXAMPLE"
+                    },
+                    "requestParameters": {
+                        "sourceIPAddress": "127.0.0.1"
+                    },
+                    "responseElements": {
+                        "x-amz-request-id": "EXAMPLE123456789",
+                        "x-amz-id-2": "EXAMPLE123/5678abcdefghijklambdaisawesome/mnopqrstuvwxyzABCDEFGH"
+                    },
+                    "s3": {
+                        "s3SchemaVersion": "1.0",
+                        "configurationId": "testConfigRule",
+                        "bucket": {
+                            "name": "example-bucket",
+                            "ownerIdentity": {
+                                "principalId": "EXAMPLE"
+                            },
+                            "arn": "arn:aws:s3:::example-bucket"
+                        },
+                        "object": {
+                            "key": "test/key",
+                            "size": 1024,
+                            "eTag": "0123456789abcdef0123456789abcdef",
+                            "sequencer": "0A1B2C3D4E5F678901"
+                        }
+                    }
+                }
+            ]
+        }"#;
+
+        let event = SqsEvent {
+            records: vec![SqsMessage {
+                message_id: Some("msg-id".into()),
+                body: Some(s3_event_json.into()),
+                ..Default::default()
+            }],
+        };
+
+        // Configure mocks for success
+        // We need to mock S3 metadata call which happens inside handle_file_created
+        use aws_sdk_s3::operation::head_object::HeadObjectOutput;
+        let s3_mock = s3_mock
+            .with_head_object_response(Ok(HeadObjectOutput::builder().build()))
+            .with_fetch_head_bytes_response(Ok(vec![]));
+
+        let state = AppState::new(
+            Arc::new(s3_mock),
+            Arc::new(dynamodb_mock.clone()),
+            Arc::new(metadata_mock),
+        );
+
+        let result = handle_sqs_event(event, &state).await;
+
+        assert!(result.is_ok());
+        let response = result.unwrap();
+        assert!(response.batch_item_failures.is_empty());
+        
+        let calls = dynamodb_mock.put_file_calls.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+    }
 }

@@ -1,4 +1,4 @@
-use crate::handler::http::storage::{health, list};
+use crate::{handler::http::storage::{health, list}, state::AppState};
 
 use aide::{
     axum::{routing, ApiRouter},
@@ -29,7 +29,7 @@ fn create_api_docs(api: TransformOpenApi) -> TransformOpenApi {
         )
 }
 
-pub fn configure_routes() -> Router {
+pub fn configure_routes(state: AppState) -> Router {
     let mut api = OpenApi::default();
     let storage_router = ApiRouter::new()
         .api_route(
@@ -76,4 +76,5 @@ pub fn configure_routes() -> Router {
         .nest("/storage", storage_router)
         .finish_api_with(&mut api, create_api_docs)
         .layer(Extension(api))
+        .with_state(state)
 }

@@ -51,13 +51,27 @@ pub fn health_docs(op: TransformOperation) -> TransformOperation {
 mod tests {
     use super::*;
     use crate::handler::http::routes;
+    use crate::repository::mock::{MockDynamoDbRepository, MockS3Repository, MockMetadataService};
+    use crate::state::AppState;
     use axum::http::StatusCode;
     use axum_test::TestServer;
+    use std::sync::Arc;
+
+    fn create_test_state() -> AppState {
+        let s3_mock = MockS3Repository::new();
+        let dynamodb_mock = MockDynamoDbRepository::new();
+        let metadata_mock = MockMetadataService::new();
+        AppState::new(
+            Arc::new(s3_mock),
+            Arc::new(dynamodb_mock),
+            Arc::new(metadata_mock),
+        )
+    }
 
     #[tokio::test]
     async fn test_health_endpoint_returns_ok_when_service_initialized() {
         crate::utils::time::init_start_time();
-        let app = routes::configure_routes();
+        let app = routes::configure_routes(create_test_state());
         let server = TestServer::new(app).unwrap();
         let response = server.get("/storage/health").await;
         assert_eq!(response.status_code(), StatusCode::OK);
@@ -69,7 +83,7 @@ mod tests {
     #[tokio::test]
     async fn test_health_endpoint_response_structure() {
         crate::utils::time::init_start_time();
-        let app = routes::configure_routes();
+        let app = routes::configure_routes(create_test_state());
         let server = TestServer::new(app).unwrap();
         let response = server.get("/storage/health").await;
         assert_eq!(response.status_code(), StatusCode::OK);

@@ -29,19 +29,14 @@ async fn main() -> Result<(), Error> {
     let ddb_repo = Arc::new(DynamoDbRepository::new().await);
     let metadata_service = Arc::new(MetadataService::new());
 
+    let state = from_the_hart_storage::state::AppState::new(s3_repo, ddb_repo, metadata_service);
+
     run(service_fn(move |event: LambdaEvent<SqsEvent>| {
-        let s3_repo = s3_repo.clone();
-        let ddb_repo = ddb_repo.clone();
-        let metadata_service = metadata_service.clone();
+        let state = state.clone();
         async move {
-            worker::handle_sqs_event(
-                event.payload,
-                &*s3_repo,
-                &*ddb_repo,
-                &*metadata_service,
-            )
-            .await
-            .map_err(|e| Error::from(format!("Handler error: {}", e)))
+            worker::handle_sqs_event(event.payload, &state)
+                .await
+                .map_err(|e| Error::from(format!("Handler error: {}", e)))
         }
     }))
     .await
