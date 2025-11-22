@@ -7,6 +7,9 @@ pub mod dynamodb;
 pub mod s3;
 pub mod utils;
 
+#[cfg(test)]
+pub mod mock;
+
 #[async_trait]
 pub trait DynamoDbRepositoryTrait: Send + Sync {
     async fn put_file_and_view_links(

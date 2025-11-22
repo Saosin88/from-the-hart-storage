@@ -148,3 +148,100 @@ async fn enrich_with_media_metadata(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::repository::mock::{MockDynamoDbRepository, MockS3Repository};
+    use aws_sdk_s3::primitives::DateTime;
+    use aws_sdk_s3::operation::head_object::HeadObjectOutput;
+    use std::time::SystemTime;
+
+    struct MockMetadataService;
+
+    #[async_trait::async_trait]
+    impl MetadataServiceTrait for MockMetadataService {
+        async fn extract_metadata(&self, _head_bytes: &[u8], _file: &mut File) {}
+    }
+
+    fn create_test_file() -> File {
+        File::new("user123/folder/test.jpg".to_string(), "test-bucket".to_string())
+    }
+
+    #[tokio::test]
+    async fn test_handle_file_created_success() {
+        let file = create_test_file();
+        let s3_mock = MockS3Repository::new()
+            .with_head_object_response(Ok(HeadObjectOutput::builder()
+                .content_type("image/jpeg")
+                .content_length(1024)
+                .last_modified(DateTime::from(SystemTime::now()))
+                .build()))
+            .with_fetch_head_bytes_response(Ok(vec![0; 100]));
+        
+        let dynamodb_mock = MockDynamoDbRepository::new();
+        let metadata_mock = MockMetadataService;
+
+        let result = handle_file_created(file, &s3_mock, &dynamodb_mock, &metadata_mock).await;
+
+        assert!(result.is_ok());
+
+        let calls = dynamodb_mock.put_file_calls.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        let (saved_file, view_links) = &calls[0];
+        
+        assert_eq!(&*saved_file.bucket, "test-bucket");
+        assert_eq!(&*saved_file.bucket_key, "user123/folder/test.jpg");
+        assert_eq!(&*saved_file.content_type, "image/jpeg");
+        assert_eq!(saved_file.size_bytes, 1024);
+        
+        // 1 file link + 1 folder link (folder)
+        assert_eq!(view_links.len(), 2); 
+    }
+
+    #[tokio::test]
+    async fn test_handle_file_created_s3_metadata_failure() {
+        let file = create_test_file();
+        // S3 metadata fails, but process should continue
+        let s3_mock = MockS3Repository::new()
+            .with_head_object_response(Err(StorageError::S3 { 
+                context: "fail".into(), 
+                source: anyhow::anyhow!("fail") 
+            }))
+            .with_fetch_head_bytes_response(Ok(vec![]));
+            
+        let dynamodb_mock = MockDynamoDbRepository::new();
+        let metadata_mock = MockMetadataService;
+
+        let result = handle_file_created(file, &s3_mock, &dynamodb_mock, &metadata_mock).await;
+
+        assert!(result.is_ok());
+        
+        let calls = dynamodb_mock.put_file_calls.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_handle_file_created_dynamodb_failure() {
+        let file = create_test_file();
+        let s3_mock = MockS3Repository::new()
+            .with_head_object_response(Ok(HeadObjectOutput::builder().build()))
+            .with_fetch_head_bytes_response(Ok(vec![]));
+            
+        let dynamodb_mock = MockDynamoDbRepository::new()
+            .with_put_file_response(Err(StorageError::DynamoDb { 
+                context: "fail".into(), 
+                source: anyhow::anyhow!("fail") 
+            }));
+            
+        let metadata_mock = MockMetadataService;
+
+        let result = handle_file_created(file, &s3_mock, &dynamodb_mock, &metadata_mock).await;
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            StorageError::DynamoDb { .. } => {},
+            _ => panic!("Expected DynamoDb error"),
+        }
+    }
+}
