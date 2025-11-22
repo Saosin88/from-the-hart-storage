@@ -38,9 +38,11 @@ pub fn health_docs(op: TransformOperation) -> TransformOperation {
     .response_with::<503, Json<HttpErrorResponse>, _>(|res| {
         res.description("Service is unavailable or experiencing errors")
             .example(HttpErrorResponse {
-                code: "SERVICE_NOT_INITIALIZED".to_string(),
-                message: "Service is not properly initialized".to_string(),
-                details: Some("Service start time not initialized".to_string()),
+                error: crate::handler::http::error::ErrorData {
+                    code: "SERVICE_NOT_INITIALIZED".to_string(),
+                    message: "Service is not properly initialized".to_string(),
+                    details: Some("Service start time not initialized".to_string()),
+                },
             })
     })
 }

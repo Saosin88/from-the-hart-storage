@@ -1,6 +1,6 @@
 use crate::{
     handler::http::{
-        dto::{StorageListResponse, ViewLink},
+        dto::{StorageListData, StorageListResponse, ViewLink},
         error::HttpError,
     },
     repository::dynamodb::DynamoDbRepository,
@@ -30,7 +30,7 @@ pub struct PathParams {
     pub path: Option<String>,
 }
 
-use crate::handler::http::dto::FileDto;
+use crate::handler::http::dto::FileResponse;
 
 pub async fn handle_file_request(
     Path(path_params): Path<PathParams>,
@@ -56,8 +56,10 @@ pub async fn handle_file_request(
         {
             Ok((items, next_cursor)) => {
                 let response = StorageListResponse {
-                    items: items.into_iter().map(ViewLink::from).collect(),
-                    next_cursor,
+                    data: StorageListData {
+                        items: items.into_iter().map(ViewLink::from).collect(),
+                        next_cursor,
+                    },
                 };
                 (StatusCode::OK, Json(response)).into_response()
             }
@@ -70,16 +72,18 @@ pub async fn handle_file_request(
         // File Retrieval
         match crate::service::file::get::get_file(&path_params.user_id, path, &repo).await {
             Ok(Some(file)) => {
-                let response = FileDto::from(file);
+                let response = FileResponse::from(file);
                 (StatusCode::OK, Json(response)).into_response()
             }
             Ok(None) => {
                 // File not found. Since strict strategy, we return 404.
                 // We don't fall back to folder listing.
                 (StatusCode::NOT_FOUND, Json(crate::handler::http::error::HttpErrorResponse {
-                    code: "not_found".to_string(),
-                    message: "File not found".to_string(),
-                    details: None,
+                    error: crate::handler::http::error::ErrorData {
+                        code: "not_found".to_string(),
+                        message: "File not found".to_string(),
+                        details: None,
+                    }
                 })).into_response()
             }
             Err(err) => {
@@ -100,7 +104,7 @@ pub fn handle_file_request_docs(op: TransformOperation) -> TransformOperation {
     .summary("Get file or list folder")
     .tag("Storage")
     .response::<200, Json<StorageListResponse>>()
-    .response::<200, Json<FileDto>>()
+    .response::<200, Json<FileResponse>>()
     .response::<400, Json<crate::handler::http::error::HttpErrorResponse>>()
     .response::<404, Json<crate::handler::http::error::HttpErrorResponse>>()
     .response::<500, Json<crate::handler::http::error::HttpErrorResponse>>()

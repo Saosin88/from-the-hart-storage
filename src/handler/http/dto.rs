@@ -3,6 +3,11 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct DataResponse<T> {
+    pub data: T,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[schemars(description = "Health check data containing service status and uptime information")]
 pub struct HealthData {
     #[schemars(
@@ -15,12 +20,7 @@ pub struct HealthData {
     pub timestamp: u128,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-#[schemars(description = "Successful health check response")]
-pub struct HealthResponse {
-    #[schemars(description = "Health check data")]
-    pub data: HealthData,
-}
+pub type HealthResponse = DataResponse<HealthData>;
 
 impl From<HealthStatus> for HealthResponse {
     fn from(status: HealthStatus) -> Self {
@@ -32,17 +32,6 @@ impl From<HealthStatus> for HealthResponse {
             },
         }
     }
-}
-
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-#[schemars(description = "Error response for failed health checks")]
-pub struct ErrorResponse {
-    #[schemars(description = "Error code indicating the type of error")]
-    pub code: String,
-    #[schemars(description = "Human-readable error message")]
-    pub message: String,
-    #[schemars(description = "Optional additional details about the error")]
-    pub details: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -78,17 +67,19 @@ impl From<crate::service::models::ViewLink> for ViewLink {
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
-#[schemars(description = "Response containing a list of files and folders")]
-pub struct StorageListResponse {
+#[schemars(description = "List of files and folders")]
+pub struct StorageListData {
     #[schemars(description = "List of files and folders")]
     pub items: Vec<ViewLink>,
     #[schemars(description = "Cursor for pagination")]
     pub next_cursor: Option<String>,
 }
 
+pub type StorageListResponse = DataResponse<StorageListData>;
+
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[schemars(description = "Detailed file information")]
-pub struct FileDto {
+pub struct FileData {
     pub bucket_key: String,
     pub bucket: String,
     pub owner_id: String,
@@ -103,25 +94,30 @@ pub struct FileDto {
     pub media_metadata: Option<serde_json::Value>,
 }
 
-impl From<crate::service::models::File> for FileDto {
+pub type FileResponse = DataResponse<FileData>;
+
+impl From<crate::service::models::File> for FileResponse {
     fn from(model: crate::service::models::File) -> Self {
         let media_metadata = model.media_metadata.as_ref().and_then(|m| {
             serde_json::to_value(m).ok()
         });
 
         Self {
-            bucket_key: model.bucket_key.to_string(),
-            bucket: model.bucket.to_string(),
-            owner_id: model.owner_id.to_string(),
-            file_id: model.file_id.to_string(),
-            file_name: model.file_name.to_string(),
-            file_path: model.file_path.to_string(),
-            folder_prefix: model.folder_prefix.to_string(),
-            created_date: model.created_date,
-            size_bytes: model.size_bytes,
-            content_type: model.content_type.to_string(),
-            media_type: model.media_type.to_string(),
-            media_metadata,
+            data: FileData {
+                bucket_key: model.bucket_key.to_string(),
+                bucket: model.bucket.to_string(),
+                owner_id: model.owner_id.to_string(),
+                file_id: model.file_id.to_string(),
+                file_name: model.file_name.to_string(),
+                file_path: model.file_path.to_string(),
+                folder_prefix: model.folder_prefix.to_string(),
+                created_date: model.created_date,
+                size_bytes: model.size_bytes,
+                content_type: model.content_type.to_string(),
+                media_type: model.media_type.to_string(),
+                media_metadata,
+            },
         }
     }
 }
+

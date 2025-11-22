@@ -8,14 +8,21 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
-#[schemars(description = "Error response for failed requests")]
-pub struct HttpErrorResponse {
+#[schemars(description = "Error details")]
+pub struct ErrorData {
     #[schemars(description = "Error code indicating the type of error")]
     pub code: String,
     #[schemars(description = "Human-readable error message")]
     pub message: String,
     #[schemars(description = "Optional additional details about the error")]
     pub details: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[schemars(description = "Error response for failed requests")]
+pub struct HttpErrorResponse {
+    #[schemars(description = "Error details")]
+    pub error: ErrorData,
 }
 
 #[derive(Debug)]
@@ -29,13 +36,16 @@ impl HttpError {
         Self {
             status,
             response: HttpErrorResponse {
-                code,
-                message,
-                details,
+                error: ErrorData {
+                    code,
+                    message,
+                    details,
+                },
             },
         }
     }
 }
+
 
 impl IntoResponse for HttpError {
     fn into_response(self) -> Response {
