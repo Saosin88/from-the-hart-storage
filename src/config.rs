@@ -1,5 +1,6 @@
-use config::{Config, ConfigError, Environment};
+use config::ConfigError;
 use serde::Deserialize;
+use std::env;
 use std::sync::OnceLock;
 
 #[derive(Debug, Deserialize, Clone)]
@@ -41,10 +42,50 @@ impl AppConfig {
     pub fn load() -> Result<Self, ConfigError> {
         dotenvy::dotenv().ok();
 
-        let builder = Config::builder().add_source(Environment::with_prefix("APP").separator("_"));
+        let environment = env::var("APP_ENVIRONMENT")
+            .map_err(|_| ConfigError::Message("APP_ENVIRONMENT is required".to_string()))?;
 
-        let settings = builder.build()?;
-        settings.try_deserialize()
+        let server = if let (Ok(host), Ok(port_str)) = (
+            env::var("APP_SERVER_HOST"),
+            env::var("APP_SERVER_PORT"),
+        ) {
+            let port = port_str.parse::<u16>().map_err(|e| {
+                ConfigError::Message(format!("Invalid APP_SERVER_PORT: {}", e))
+            })?;
+            Some(ServerConfig { host, port })
+        } else {
+            None
+        };
+
+        let timezone = env::var("APP_TIMEZONE").ok();
+
+        let dynamodb = env::var("APP_DYNAMODB_TABLE")
+            .ok()
+            .map(|table| DynamoDB { table });
+
+        let cloudfront = match (
+            env::var("APP_CLOUDFRONT_KEY_PAIR_ID").ok(),
+            env::var("APP_CLOUDFRONT_DOMAIN").ok(),
+        ) {
+            (Some(key_pair_id), Some(domain)) => {
+                let private_key_ssm_path = env::var("APP_CLOUDFRONT_PRIVATE_KEY_SSM_PATH")
+                    .unwrap_or_else(|_| default_private_key_ssm_path());
+                Some(CloudFront {
+                    key_pair_id,
+                    private_key_ssm_path,
+                    domain,
+                })
+            }
+            _ => None,
+        };
+
+        Ok(AppConfig {
+            environment,
+            server,
+            timezone,
+            dynamodb,
+            cloudfront,
+        })
     }
 }
 
