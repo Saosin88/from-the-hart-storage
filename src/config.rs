@@ -14,6 +14,18 @@ pub struct DynamoDB {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+pub struct CloudFront {
+    pub key_pair_id: String,
+    #[serde(default = "default_private_key_ssm_path")]
+    pub private_key_ssm_path: String,
+    pub domain: String,
+}
+
+fn default_private_key_ssm_path() -> String {
+    "/from-the-hart-tech-storage/dev/cloudfront-private-key".to_string()
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct AppConfig {
     pub environment: String,
     #[serde(default)]
@@ -22,6 +34,7 @@ pub struct AppConfig {
     pub timezone: Option<String>,
 
     pub dynamodb: Option<DynamoDB>,
+    pub cloudfront: Option<CloudFront>,
 }
 
 impl AppConfig {

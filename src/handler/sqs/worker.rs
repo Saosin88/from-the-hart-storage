@@ -207,6 +207,7 @@ mod tests {
             Arc::new(s3_mock),
             Arc::new(dynamodb_mock.clone()),
             Arc::new(metadata_mock),
+            None, // No CloudFront signer in tests
         );
 
         let result = handle_sqs_event(event, &state).await;

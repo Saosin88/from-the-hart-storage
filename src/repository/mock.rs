@@ -1,5 +1,5 @@
 use crate::error::StorageError;
-use crate::repository::{DynamoDbRepositoryTrait, S3RepositoryTrait};
+use crate::repository::{DynamoDbRepositoryTrait, S3RepositoryTrait, SsmRepositoryTrait};
 use crate::service::{models::ViewLink, File};
 use async_trait::async_trait;
 use aws_sdk_s3::operation::head_object::HeadObjectOutput;
@@ -181,4 +181,59 @@ impl MockMetadataService {
 #[async_trait]
 impl MetadataServiceTrait for MockMetadataService {
     async fn extract_metadata(&self, _head_bytes: &[u8], _file: &mut File) {}
+}
+
+type GetParameterResponse = Arc<Mutex<Option<Result<String, StorageError>>>>;
+
+#[derive(Clone)]
+pub struct MockSsmRepository {
+    pub get_parameter_response: GetParameterResponse,
+    pub get_parameter_calls: Arc<Mutex<Vec<(String, bool)>>>,
+}
+
+impl Default for MockSsmRepository {
+    fn default() -> Self {
+        Self {
+            get_parameter_response: Arc::new(Mutex::new(None)),
+            get_parameter_calls: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+}
+
+impl MockSsmRepository {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_get_parameter_response(self, response: Result<String, StorageError>) -> Self {
+        *self.get_parameter_response.lock().unwrap() = Some(response);
+        self
+    }
+
+    pub fn get_parameter_calls(&self) -> Vec<(String, bool)> {
+        self.get_parameter_calls.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl SsmRepositoryTrait for MockSsmRepository {
+    async fn get_parameter(
+        &self,
+        path: &str,
+        with_decryption: bool,
+    ) -> Result<String, StorageError> {
+        self.get_parameter_calls
+            .lock()
+            .unwrap()
+            .push((path.to_string(), with_decryption));
+
+        let mut lock = self.get_parameter_response.lock().unwrap();
+        if let Some(response) = lock.take() {
+            return response;
+        }
+        Err(StorageError::Ssm {
+            context: "Mock SSM not configured".to_string(),
+            source: anyhow::anyhow!("Mock not configured"),
+        })
+    }
 }

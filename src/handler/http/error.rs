@@ -88,6 +88,24 @@ impl From<StorageError> for HttpError {
                 "Invalid request parameters".to_string(),
                 None,
             ),
+            StorageError::JwtParse { .. } => HttpError::new(
+                StatusCode::UNAUTHORIZED,
+                "UNAUTHORIZED".to_string(),
+                "Invalid or missing authentication token".to_string(),
+                None,
+            ),
+            StorageError::CloudFrontSigning { .. } => HttpError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "INTERNAL_ERROR".to_string(),
+                "Failed to generate signed access".to_string(),
+                None,
+            ),
+            StorageError::Ssm { .. } => HttpError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "INTERNAL_ERROR".to_string(),
+                "Configuration error".to_string(),
+                None,
+            ),
             // Catch-all for internal errors (500) - Sanitize output
             _ => HttpError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,

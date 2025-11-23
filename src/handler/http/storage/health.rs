@@ -65,6 +65,7 @@ mod tests {
             Arc::new(s3_mock),
             Arc::new(dynamodb_mock),
             Arc::new(metadata_mock),
+            None, // No CloudFront signer in tests
         )
     }
 

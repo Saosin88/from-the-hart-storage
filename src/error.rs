@@ -70,4 +70,25 @@ pub enum StorageError {
     InvalidFormat {
         context: String,
     },
+
+    #[error("CloudFront signing error: {context}")]
+    CloudFrontSigning {
+        context: String,
+        #[source]
+        source: anyhow::Error,
+    },
+
+    #[error("JWT parse error: {context}")]
+    JwtParse {
+        context: String,
+        #[source]
+        source: anyhow::Error,
+    },
+
+    #[error("SSM error: {context}")]
+    Ssm {
+        context: String,
+        #[source]
+        source: anyhow::Error,
+    },
 }

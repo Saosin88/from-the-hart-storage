@@ -5,6 +5,7 @@ use aws_sdk_s3::operation::head_object::HeadObjectOutput;
 
 pub mod dynamodb;
 pub mod s3;
+pub mod ssm;
 pub mod utils;
 
 #[cfg(test)]
@@ -43,4 +44,13 @@ pub trait S3RepositoryTrait: Send + Sync {
         key: &str,
         num_bytes: u64,
     ) -> Result<Vec<u8>, StorageError>;
+}
+
+#[async_trait]
+pub trait SsmRepositoryTrait: Send + Sync {
+    async fn get_parameter(
+        &self,
+        path: &str,
+        with_decryption: bool,
+    ) -> Result<String, StorageError>;
 }

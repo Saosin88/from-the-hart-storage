@@ -41,8 +41,12 @@ chrono-tz = "0.10"
 async-trait = "0.1"
 urlencoding = "2.1"
 aws-sdk-dynamodb = "1.98.0"
+aws-sdk-ssm = "1.98.0"
+sha1 = "0.10"
 sha2 = "0.10.9"
 base64 = "0.22.1"
+jsonwebtoken = "9"
+rsa = { version = "0.9", features = ["sha1"] }
 
 [dev-dependencies]
 axum-test = "18.2"

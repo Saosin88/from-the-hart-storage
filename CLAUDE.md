@@ -57,11 +57,16 @@ docker run -e RUST_LOG=info -e AWS_REGION=us-east-1 -p 8080:8080 storage:http
 
 **Required:**
 - `APP_ENVIRONMENT` - local, development, production
-- `APP_SERVER_HOST` - default: 0.0.0.0
-- `APP_SERVER_PORT` - default: 8080
+- `APP_SERVER_HOST` - default: 0.0.0.0 (for local dev)
+- `APP_SERVER_PORT` - default: 8080 (for local dev)
 - `AWS_REGION` - e.g., us-east-1
 - `APP_DYNAMODB_TABLE` - DynamoDB table name
 - `APP_S3_BUCKET` - S3 bucket name
+
+**CloudFront Signed URLs (Optional):**
+- `APP_CLOUDFRONT_KEY_PAIR_ID` - CloudFront public key pair ID
+- `APP_CLOUDFRONT_PRIVATE_KEY_SSM_PATH` - SSM parameter path for private key (default: `/from-the-hart-tech-storage/dev/cloudfront-private-key`)
+- `APP_CLOUDFRONT_DOMAIN` - CloudFront distribution domain (e.g., `dev-storage.fromthehart.tech`)
 
 **Logging:**
 - `RUST_LOG` - trace, debug, info, warn, error
@@ -95,6 +100,99 @@ cargo test                           # All tests
 cargo test repository::              # Specific module
 RUST_LOG=debug cargo test            # With logging
 ```
+
+## Architecture Patterns
+
+### Repository Pattern with Traits
+
+All AWS service interactions use trait-based repositories for testability and flexibility.
+
+**Available Repository Traits:**
+- `S3RepositoryTrait` - S3 object operations
+- `DynamoDbRepositoryTrait` - DynamoDB CRUD operations
+- `SsmRepositoryTrait` - Systems Manager Parameter Store access
+
+**Example: Using SsmRepositoryTrait**
+
+```rust
+use crate::repository::{SsmRepositoryTrait, ssm::SsmRepository};
+use crate::error::StorageError;
+
+async fn fetch_secret<T: SsmRepositoryTrait>(
+    ssm_repo: &T,
+    param_path: &str,
+) -> Result<String, StorageError> {
+    ssm_repo.get_parameter(param_path, true).await
+}
+
+let ssm = SsmRepository::new().await;
+let secret = fetch_secret(&ssm, "/my-app/secret").await?;
+```
+
+**Testing with Mocks:**
+
+```rust
+#[cfg(test)]
+mod tests {
+    use crate::repository::mock::MockSsmRepository;
+
+    #[tokio::test]
+    async fn test_fetch_secret_success() {
+        let mock_ssm = MockSsmRepository::new()
+            .with_get_parameter_response(Ok("test-value".to_string()));
+
+        let result = fetch_secret(&mock_ssm, "/test/param").await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "test-value");
+
+        let calls = mock_ssm.get_parameter_calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, "/test/param");
+        assert!(calls[0].1);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_secret_failure() {
+        let mock_ssm = MockSsmRepository::new()
+            .with_get_parameter_response(Err(
+                StorageError::Ssm {
+                    context: "Not found".to_string(),
+                    source: anyhow::anyhow!("Test error"),
+                }
+            ));
+
+        let result = fetch_secret(&mock_ssm, "/test/param").await;
+        assert!(result.is_err());
+    }
+}
+```
+
+**Real-World Example: CloudFront Signer Initialization**
+
+The `CloudFrontSigner::from_ssm_config()` method demonstrates this pattern:
+
+```rust
+pub async fn from_ssm_config<T: SsmRepositoryTrait>(
+    ssm_repo: &T
+) -> Option<Arc<Self>> {
+    let cf_config = config().cloudfront.as_ref()?;
+
+    let private_key_pem = ssm_repo
+        .get_parameter(&cf_config.private_key_ssm_path, true)
+        .await
+        .ok()?;
+
+    Self::new(&private_key_pem, cf_config.key_pair_id.clone(), cf_config.domain.clone())
+        .ok()
+        .map(Arc::new)
+}
+```
+
+This pattern allows:
+- Easy mocking in unit tests
+- Flexible repository implementations
+- Clean separation of concerns
+- Type-safe async operations
 
 ## Related Services
 

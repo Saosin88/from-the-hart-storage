@@ -1,4 +1,7 @@
 #[cfg(feature = "http")]
+pub mod access;
+
+#[cfg(feature = "http")]
 pub mod health;
 
 #[cfg(feature = "sqs")]

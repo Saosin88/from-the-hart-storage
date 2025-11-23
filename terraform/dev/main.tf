@@ -32,10 +32,14 @@ module "http_worker" {
   log_retention_days  = 1
 
   environment_variables = {
-    APP_ENVIRONMENT    = "dev"
-    RUST_LOG           = "INFO"
-    APP_TIMEZONE       = "Africa/Johannesburg"
-    APP_DYNAMODB_TABLE = module.dynamodb.table_name
+    APP_ENVIRONMENT                     = "dev"
+    RUST_LOG                            = "INFO"
+    APP_TIMEZONE                        = "Africa/Johannesburg"
+    APP_DYNAMODB_TABLE                  = module.dynamodb.table_name
+    APP_S3_BUCKET                       = module.from_the_hart_storage.s3_bucket_name
+    APP_CLOUDFRONT_KEY_PAIR_ID          = module.from_the_hart_storage.cloudfront_public_key_id
+    APP_CLOUDFRONT_PRIVATE_KEY_SSM_PATH = module.from_the_hart_storage.ssm_private_key_parameter_name
+    APP_CLOUDFRONT_DOMAIN               = "dev-storage.fromthehart.tech"
   }
 }
 
@@ -54,6 +58,7 @@ module "sqs_worker" {
     RUST_LOG           = "INFO"
     APP_TIMEZONE       = "Africa/Johannesburg"
     APP_DYNAMODB_TABLE = module.dynamodb.table_name
+    APP_S3_BUCKET      = module.from_the_hart_storage.s3_bucket_name
   }
 
   event_source_arn             = module.from_the_hart_storage_notifications.queue_arn
@@ -66,7 +71,7 @@ module "sqs_worker" {
 module "dynamodb" {
   source = "../modules/dynamodb"
 
-  name      = "from-the-hart-storage-dev"
+  name = "from-the-hart-storage-dev"
 
   tags = {
     Domain      = "tech"

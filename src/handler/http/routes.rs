@@ -1,4 +1,4 @@
-use crate::{handler::http::storage::{health, list}, state::AppState};
+use crate::{handler::http::storage::{access, health, list}, state::AppState};
 
 use aide::{
     axum::{routing, ApiRouter},
@@ -35,6 +35,10 @@ pub fn configure_routes(state: AppState) -> Router {
         .api_route(
             "/health",
             routing::get_with(health::health, health::health_docs),
+        )
+        .api_route(
+            "/access",
+            routing::get_with(access::get_signed_access, access::get_signed_access_docs),
         )
         .route(
             "/{user_id}",
