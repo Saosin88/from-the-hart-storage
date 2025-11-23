@@ -3,9 +3,11 @@ use from_the_hart_storage::{
     handler::http::routes,
     logging,
     repository::{dynamodb::DynamoDbRepository, s3::S3Repository},
-    service::metadata::MetadataService,
     utils::time,
 };
+
+#[cfg(feature = "sqs")]
+use from_the_hart_storage::service::metadata::MetadataService;
 
 use lambda_http::Error;
 use std::sync::Arc;
@@ -28,13 +30,15 @@ async fn main() -> Result<(), Error> {
 
     let s3_repo = Arc::new(S3Repository::new().await);
     let ddb_repo = Arc::new(DynamoDbRepository::new().await);
-    let metadata_service = Arc::new(MetadataService::new());
 
-    let state = from_the_hart_storage::state::AppState::new(
-        s3_repo,
-        ddb_repo,
-        metadata_service,
-    );
+    #[cfg(feature = "sqs")]
+    let state = {
+        let metadata_service = Arc::new(MetadataService::new());
+        from_the_hart_storage::state::AppState::new(s3_repo, ddb_repo, metadata_service)
+    };
+
+    #[cfg(not(feature = "sqs"))]
+    let state = from_the_hart_storage::state::AppState::new(s3_repo, ddb_repo);
 
     let app = routes::configure_routes(state);
     let app = ServiceBuilder::new()
