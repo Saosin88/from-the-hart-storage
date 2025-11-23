@@ -1,0 +1,569 @@
+{
+	"info": {
+		"_postman_id": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
+		"name": "From The Hart - Storage API",
+		"description": "Secure cloud storage API for From The Hart platform.\n\n## Features\n- Health monitoring and status checks\n- CloudFront signed URLs for secure file access\n- File and folder listing with metadata\n- RESTful API design\n- Comprehensive error handling\n\n## Authentication\nMost endpoints require a valid JWT token in the Authorization header.\n\n## Environment Variables\n- `base_url`: Base URL for the Storage API (e.g., https://your-lambda-url.execute-api.af-south-1.amazonaws.com)\n- `jwt_token`: Valid JWT token for authenticated requests\n- `user_id`: User ID for testing user-specific endpoints",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Health & Documentation",
+			"item": [
+				{
+					"name": "Health Check",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response has data object\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('data');",
+									"    pm.expect(jsonData.data).to.have.property('status');",
+									"    pm.expect(jsonData.data).to.have.property('uptime');",
+									"    pm.expect(jsonData.data).to.have.property('timestamp');",
+									"});",
+									"",
+									"pm.test(\"Status is ok\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.data.status).to.eql('ok');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/storage/health",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"storage",
+								"health"
+							]
+						},
+						"description": "Check the health status of the Storage API.\n\nReturns:\n- `status`: Service status (always \"ok\" when responding)\n- `uptime`: Service uptime in seconds\n- `timestamp`: Current timestamp in milliseconds since UNIX epoch\n\nThis endpoint does not require authentication."
+					},
+					"response": [
+						{
+							"name": "Success",
+							"originalRequest": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/storage/health",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"storage",
+										"health"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"data\": {\n        \"status\": \"ok\",\n        \"uptime\": 12345,\n        \"timestamp\": 1700000000000\n    }\n}"
+						}
+					]
+				},
+				{
+					"name": "OpenAPI Specification",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/storage/openapi.json",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"storage",
+								"openapi.json"
+							]
+						},
+						"description": "Returns the complete OpenAPI 3.0 specification for this API in JSON format.\n\nThis endpoint provides machine-readable API documentation that can be used by:\n- API clients and SDKs\n- Documentation generators\n- Testing tools\n- Development tools and IDEs"
+					},
+					"response": []
+				},
+				{
+					"name": "Swagger Documentation",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/storage/documentation",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"storage",
+								"documentation"
+							]
+						},
+						"description": "Interactive Swagger UI documentation for exploring and testing the API endpoints.\n\nProvides a web interface to:\n- Browse all available endpoints\n- View request/response schemas\n- Test API calls directly from the browser\n- View example requests and responses"
+					},
+					"response": []
+				}
+			],
+			"description": "Endpoints for checking service health and accessing API documentation."
+		},
+		{
+			"name": "CloudFront Signed Access",
+			"item": [
+				{
+					"name": "Get Signed Access",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response has signed access data\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('data');",
+									"    pm.expect(jsonData.data).to.have.property('resource_pattern');",
+									"    pm.expect(jsonData.data).to.have.property('expires_at');",
+									"    pm.expect(jsonData.data).to.have.property('query_params');",
+									"});",
+									"",
+									"pm.test(\"Response has CloudFront cookies\", function () {",
+									"    pm.response.to.have.header('Set-Cookie');",
+									"    var cookies = pm.response.headers.all().filter(h => h.key === 'Set-Cookie');",
+									"    pm.expect(cookies.length).to.be.at.least(3);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}",
+								"type": "text",
+								"description": "JWT token for authentication"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/storage/access",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"storage",
+								"access"
+							]
+						},
+						"description": "Generate CloudFront signed access for user files.\n\nThis endpoint generates CloudFront signed URLs and sets signed cookies that grant access to all files in the authenticated user's directory. The signature is valid for 1 hour.\n\n**Authentication:** Requires a valid JWT token in the Authorization header (Bearer token).\n\n**Usage:**\n1. Call this endpoint to get signed access credentials\n2. Use the returned `query_params` to append to any file URL for signed access\n3. Alternatively, the browser will automatically send the signed cookies with subsequent requests\n\n**Response includes:**\n- Query parameters for signed URLs\n- Three Set-Cookie headers (CloudFront-Policy, CloudFront-Signature, CloudFront-Key-Pair-Id)\n\n**Security:**\n- Cookies are set with Secure, HttpOnly, and SameSite=None attributes\n- Access is limited to the authenticated user's directory pattern: `/{user_id}/*`\n- Signatures expire after 1 hour"
+					},
+					"response": [
+						{
+							"name": "Success",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}/storage/access",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"storage",
+										"access"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "Set-Cookie",
+									"value": "CloudFront-Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly9kZXYtc3RvcmFnZS5mcm9tdGhlaGFydC50ZWNoL3VzZXIxMjMvKiIsIkNvbmRpdGlvbiI6eyJEYXRlTGVzc1RoYW4iOnsiQVdTOkVwb2NoVGltZSI6MTcwMDAwMDAwMH19fV19; Domain=dev-storage.fromthehart.tech; Path=/; Secure; HttpOnly; SameSite=None; Max-Age=3600"
+								},
+								{
+									"key": "Set-Cookie",
+									"value": "CloudFront-Signature=abc123def456...; Domain=dev-storage.fromthehart.tech; Path=/; Secure; HttpOnly; SameSite=None; Max-Age=3600"
+								},
+								{
+									"key": "Set-Cookie",
+									"value": "CloudFront-Key-Pair-Id=K3L570FIZHK31R; Domain=dev-storage.fromthehart.tech; Path=/; Secure; HttpOnly; SameSite=None; Max-Age=3600"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"data\": {\n        \"resource_pattern\": \"https://dev-storage.fromthehart.tech/user123/*\",\n        \"expires_at\": 1700000000,\n        \"query_params\": \"Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly9kZXYtc3RvcmFnZS5mcm9tdGhlaGFydC50ZWNoL3VzZXIxMjMvKiIsIkNvbmRpdGlvbiI6eyJEYXRlTGVzc1RoYW4iOnsiQVdTOkVwb2NoVGltZSI6MTcwMDAwMDAwMH19fV19&Signature=abc123def456...&Key-Pair-Id=K3L570FIZHK31R\"\n    }\n}"
+						},
+						{
+							"name": "Missing Authorization",
+							"originalRequest": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/storage/access",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"storage",
+										"access"
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"error\": {\n        \"message\": \"Missing Authorization header\",\n        \"details\": \"Authorization header is required\"\n    }\n}"
+						},
+						{
+							"name": "CloudFront Not Configured",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}/storage/access",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"storage",
+										"access"
+									]
+								}
+							},
+							"status": "Service Unavailable",
+							"code": 503,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"error\": {\n        \"message\": \"CloudFront signer not configured\",\n        \"details\": \"Signed URLs are not available\"\n    }\n}"
+						}
+					]
+				}
+			],
+			"description": "Endpoints for generating CloudFront signed URLs and cookies for secure file access."
+		},
+		{
+			"name": "Files & Folders",
+			"item": [
+				{
+					"name": "List User Root Directory",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response has items array\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('data');",
+									"    pm.expect(jsonData.data).to.have.property('items');",
+									"    pm.expect(jsonData.data.items).to.be.an('array');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/storage/{{user_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"storage",
+								"{{user_id}}"
+							]
+						},
+						"description": "List all files and folders in the user's root directory.\n\nReturns:\n- `items`: Array of files and folders with metadata\n- `next_cursor`: Pagination cursor (if more items available)\n\nEach item includes:\n- File/folder name, size, media type\n- Creation date\n- Resource, owner, and viewer IDs\n- Folder prefix and path information"
+					},
+					"response": [
+						{
+							"name": "Success - Folder List",
+							"originalRequest": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/storage/user123",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"storage",
+										"user123"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"data\": {\n        \"items\": [\n            {\n                \"viewer_id\": \"user123\",\n                \"resource_id\": \"file-uuid-1\",\n                \"owner_id\": \"user123\",\n                \"grant_id\": \"grant-uuid-1\",\n                \"created_date\": 1700000000,\n                \"folder_prefix\": \"/user123/\",\n                \"name\": \"vacation-photo.jpg\",\n                \"media_type\": \"image/jpeg\",\n                \"size_bytes\": 2048576,\n                \"is_folder\": false\n            },\n            {\n                \"viewer_id\": \"user123\",\n                \"resource_id\": \"folder-uuid-1\",\n                \"owner_id\": \"user123\",\n                \"grant_id\": \"grant-uuid-2\",\n                \"created_date\": 1699900000,\n                \"folder_prefix\": \"/user123/documents/\",\n                \"name\": \"documents\",\n                \"media_type\": \"application/x-directory\",\n                \"size_bytes\": 0,\n                \"is_folder\": true\n            }\n        ],\n        \"next_cursor\": null\n    }\n}"
+						}
+					]
+				},
+				{
+					"name": "List Subfolder Contents",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response has items array\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('data');",
+									"    pm.expect(jsonData.data).to.have.property('items');",
+									"    pm.expect(jsonData.data.items).to.be.an('array');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/storage/{{user_id}}/documents/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"storage",
+								"{{user_id}}",
+								"documents",
+								""
+							]
+						},
+						"description": "List all files and folders in a specific subdirectory.\n\nPath must end with `/` to indicate folder listing.\n\nReturns the same structure as root directory listing, but scoped to the specified folder."
+					},
+					"response": []
+				},
+				{
+					"name": "Get File Details",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response has file data\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('data');",
+									"    pm.expect(jsonData.data).to.have.property('file_id');",
+									"    pm.expect(jsonData.data).to.have.property('file_name');",
+									"    pm.expect(jsonData.data).to.have.property('bucket_key');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/storage/{{user_id}}/vacation-photo.jpg",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"storage",
+								"{{user_id}}",
+								"vacation-photo.jpg"
+							]
+						},
+						"description": "Get detailed metadata for a specific file.\n\nPath must NOT end with `/` (indicates file, not folder).\n\nReturns:\n- Complete file metadata including bucket location\n- File size, content type, media type\n- Creation date and owner information\n- Media metadata (EXIF data for images, etc.) if available"
+					},
+					"response": [
+						{
+							"name": "Success - File Details",
+							"originalRequest": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/storage/user123/vacation-photo.jpg",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"storage",
+										"user123",
+										"vacation-photo.jpg"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"data\": {\n        \"bucket_key\": \"user123/vacation-photo.jpg\",\n        \"bucket\": \"dev-storage.fromthehart.tech\",\n        \"owner_id\": \"user123\",\n        \"file_id\": \"file-uuid-1\",\n        \"file_name\": \"vacation-photo.jpg\",\n        \"file_path\": \"/user123/vacation-photo.jpg\",\n        \"folder_prefix\": \"/user123/\",\n        \"created_date\": 1700000000,\n        \"size_bytes\": 2048576,\n        \"content_type\": \"image/jpeg\",\n        \"media_type\": \"image/jpeg\",\n        \"media_metadata\": {\n            \"width\": 1920,\n            \"height\": 1080,\n            \"exif\": {\n                \"make\": \"Canon\",\n                \"model\": \"EOS R5\",\n                \"datetime\": \"2024:01:15 14:30:00\",\n                \"gps\": {\n                    \"latitude\": -33.924869,\n                    \"longitude\": 18.424055,\n                    \"altitude\": 12.5\n                }\n            }\n        }\n    }\n}"
+						},
+						{
+							"name": "File Not Found",
+							"originalRequest": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/storage/user123/nonexistent.jpg",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"storage",
+										"user123",
+										"nonexistent.jpg"
+									]
+								}
+							},
+							"status": "Not Found",
+							"code": 404,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"error\": {\n        \"message\": \"File not found\",\n        \"details\": \"The requested file does not exist\"\n    }\n}"
+						}
+					]
+				},
+				{
+					"name": "Get Nested File Details",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/storage/{{user_id}}/documents/report.pdf",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"storage",
+								"{{user_id}}",
+								"documents",
+								"report.pdf"
+							]
+						},
+						"description": "Get detailed metadata for a file in a nested folder structure.\n\nSupports arbitrary folder depth (e.g., `/user123/folder1/folder2/folder3/file.txt`)."
+					},
+					"response": []
+				}
+			],
+			"description": "Endpoints for listing directories and retrieving file metadata.\n\n**Path Format:**\n- Folder listing: Path ends with `/` (e.g., `/user123/documents/`)\n- File details: Path does NOT end with `/` (e.g., `/user123/photo.jpg`)\n\n**Note:** These endpoints return metadata only. To download actual file content, use CloudFront signed URLs obtained from the `/storage/access` endpoint."
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "https://your-lambda-url.execute-api.af-south-1.amazonaws.com",
+			"type": "string"
+		},
+		{
+			"key": "jwt_token",
+			"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoidGVzdC11c2VyLTEyMyIsImV4cCI6OTk5OTk5OTk5OX0.fake_signature",
+			"type": "string"
+		},
+		{
+			"key": "user_id",
+			"value": "test-user-123",
+			"type": "string"
+		}
+	]
+}
