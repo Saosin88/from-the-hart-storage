@@ -33,6 +33,7 @@ async fn main() -> Result<(), Error> {
         Some(s3_repo),
         ddb_repo,
         Some(metadata_service),
+        #[cfg(feature = "http")]
         None,
     );
 

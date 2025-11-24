@@ -30,8 +30,14 @@ async fn main() -> Result<(), Error> {
     let ssm_repo = SsmRepository::new().await;
     let cloudfront_signer = CloudFrontSigner::from_ssm_config(&ssm_repo).await;
 
-    let state =
-        from_the_hart_storage::state::AppState::new(None, ddb_repo, None, cloudfront_signer);
+    let state = from_the_hart_storage::state::AppState::new(
+        #[cfg(feature = "sqs")]
+        None,
+        ddb_repo,
+        #[cfg(feature = "sqs")]
+        None,
+        cloudfront_signer,
+    );
 
     let app = routes::configure_routes(state);
     let app = ServiceBuilder::new()

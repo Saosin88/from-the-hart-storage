@@ -2,13 +2,13 @@ use from_the_hart_storage::{
     config,
     handler::http::routes,
     logging,
-    repository::{dynamodb::DynamoDbRepository, s3::S3Repository, ssm::SsmRepository},
+    repository::{dynamodb::DynamoDbRepository, ssm::SsmRepository},
     service::access::CloudFrontSigner,
     utils::time,
 };
 
 #[cfg(feature = "sqs")]
-use from_the_hart_storage::service::metadata::MetadataService;
+use from_the_hart_storage::{repository::s3::S3Repository, service::metadata::MetadataService};
 
 use std::sync::Arc;
 use tokio::{net::TcpListener, signal, signal::unix};
@@ -21,15 +21,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     logging::init_logging();
     config::init_config()?;
 
-    let s3_repo = Arc::new(S3Repository::new().await);
     let ddb_repo = Arc::new(DynamoDbRepository::new().await);
     let ssm_repo = SsmRepository::new().await;
     let cloudfront_signer = CloudFrontSigner::from_ssm_config(&ssm_repo).await;
 
+    #[cfg(feature = "sqs")]
+    let s3_repo = Arc::new(S3Repository::new().await);
+    #[cfg(feature = "sqs")]
     let metadata_service = Arc::new(MetadataService::new());
+
     let state = from_the_hart_storage::state::AppState::new(
+        #[cfg(feature = "sqs")]
         Some(s3_repo),
         ddb_repo,
+        #[cfg(feature = "sqs")]
         Some(metadata_service),
         cloudfront_signer,
     );

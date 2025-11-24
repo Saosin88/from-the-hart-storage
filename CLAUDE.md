@@ -218,6 +218,31 @@ Find a better solution that:
 
 **Priority:** Medium - Works but needs improvement for long-term maintainability
 
+### CloudFront Signed URL Generation (src/service/access.rs)
+
+**NEEDS TESTING** - CloudFront signed URL generation currently lacks comprehensive test coverage.
+
+**Problem:**
+- `CloudFrontSigner` is a concrete struct, not abstracted behind a trait
+- Cannot be easily mocked in tests
+- No tests for signed URL generation logic
+- HTTP handler tests skip CloudFront signing by passing `None`
+
+**TODO:**
+To improve testability:
+1. Create `CloudFrontSignerTrait` trait
+2. Implement trait for `CloudFrontSigner`
+3. Create `MockCloudFrontSigner` for tests
+4. Update `AppState` to use `Arc<dyn CloudFrontSignerTrait>`
+5. Write comprehensive tests for:
+   - URL signing with various expiration times
+   - Policy generation
+   - Query parameter formatting
+   - Cookie generation
+   - Edge cases and error conditions
+
+**Priority:** Medium - Functionality works but needs test coverage for production confidence
+
 ## Related Services
 
 - **Auth Service:** Token validation for authenticated operations
