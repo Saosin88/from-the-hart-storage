@@ -103,9 +103,17 @@ pub async fn handle_sqs_event(
                 name if name.starts_with("ObjectCreated:") => {
                     if let Err(e) = handle_file_created(
                         file,
-                        state.s3_repository.as_ref(),
+                        state
+                            .s3_repository
+                            .as_ref()
+                            .expect("s3_repository is required for SQS handler")
+                            .as_ref(),
                         state.dynamo_db_repository.as_ref(),
-                        state.metadata_service.as_ref(),
+                        state
+                            .metadata_service
+                            .as_ref()
+                            .expect("metadata_service is required for SQS handler")
+                            .as_ref(),
                     )
                     .await
                     {
@@ -138,7 +146,7 @@ pub async fn handle_sqs_event(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::repository::mock::{MockDynamoDbRepository, MockS3Repository, MockMetadataService};
+    use crate::repository::mock::{MockDynamoDbRepository, MockMetadataService, MockS3Repository};
     use aws_lambda_events::event::sqs::SqsMessage;
     use std::sync::Arc;
 
@@ -204,10 +212,10 @@ mod tests {
             .with_fetch_head_bytes_response(Ok(vec![]));
 
         let state = AppState::new(
-            Arc::new(s3_mock),
+            Some(Arc::new(s3_mock)),
             Arc::new(dynamodb_mock.clone()),
-            Arc::new(metadata_mock),
-            None, // No CloudFront signer in tests
+            Some(Arc::new(metadata_mock)),
+            None,
         );
 
         let result = handle_sqs_event(event, &state).await;
@@ -215,7 +223,7 @@ mod tests {
         assert!(result.is_ok());
         let response = result.unwrap();
         assert!(response.batch_item_failures.is_empty());
-        
+
         let calls = dynamodb_mock.put_file_calls.lock().unwrap();
         assert_eq!(calls.len(), 1);
     }

@@ -134,20 +134,19 @@ pub fn get_signed_access_docs(op: TransformOperation) -> TransformOperation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::repository::mock::{MockDynamoDbRepository, MockMetadataService, MockS3Repository};
-    use axum::http::{header, StatusCode};
+    use crate::repository::mock::{MockDynamoDbRepository, MockMetadataService};
+    use axum::http::StatusCode;
     use std::sync::Arc;
 
     #[tokio::test]
     async fn test_get_signed_access_missing_auth_header() {
-        let s3_mock = MockS3Repository::new();
         let dynamodb_mock = MockDynamoDbRepository::new();
         let metadata_mock = MockMetadataService::new();
         let state = AppState::new(
-            Arc::new(s3_mock),
+            None,
             Arc::new(dynamodb_mock),
-            Arc::new(metadata_mock),
-            None, // No CloudFront signer
+            Some(Arc::new(metadata_mock)),
+            None,
         );
 
         let headers = HeaderMap::new();
@@ -160,20 +159,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_signed_access_cloudfront_not_configured() {
-        let s3_mock = MockS3Repository::new();
         let dynamodb_mock = MockDynamoDbRepository::new();
         let metadata_mock = MockMetadataService::new();
         let state = AppState::new(
-            Arc::new(s3_mock),
+            None,
             Arc::new(dynamodb_mock),
-            Arc::new(metadata_mock),
-            None, // No CloudFront signer
+            Some(Arc::new(metadata_mock)),
+            None,
         );
 
         let mut headers = HeaderMap::new();
         let token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoidGVzdC11c2VyLTEyMyIsImV4cCI6OTk5OTk5OTk5OX0.fake_signature";
         headers.insert(
-            header::AUTHORIZATION,
+            "X-From-The-Hart-Authorization",
             format!("Bearer {}", token).parse().unwrap(),
         );
 

@@ -26,14 +26,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ssm_repo = SsmRepository::new().await;
     let cloudfront_signer = CloudFrontSigner::from_ssm_config(&ssm_repo).await;
 
-    #[cfg(feature = "sqs")]
-    let state = {
-        let metadata_service = Arc::new(MetadataService::new());
-        from_the_hart_storage::state::AppState::new(s3_repo, ddb_repo, metadata_service, cloudfront_signer)
-    };
-
-    #[cfg(not(feature = "sqs"))]
-    let state = from_the_hart_storage::state::AppState::new(s3_repo, ddb_repo, cloudfront_signer);
+    let metadata_service = Arc::new(MetadataService::new());
+    let state = from_the_hart_storage::state::AppState::new(
+        Some(s3_repo),
+        ddb_repo,
+        Some(metadata_service),
+        cloudfront_signer,
+    );
 
     let app = routes::configure_routes(state).layer(TraceLayer::new_for_http());
 

@@ -1,28 +1,21 @@
 use crate::repository::{DynamoDbRepositoryTrait, S3RepositoryTrait};
-use std::sync::Arc;
-
-#[cfg(feature = "sqs")]
-use crate::service::metadata::MetadataServiceTrait;
-
-#[cfg(feature = "http")]
 use crate::service::access::CloudFrontSigner;
+use crate::service::metadata::MetadataServiceTrait;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub s3_repository: Arc<dyn S3RepositoryTrait>,
+    pub s3_repository: Option<Arc<dyn S3RepositoryTrait>>,
     pub dynamo_db_repository: Arc<dyn DynamoDbRepositoryTrait>,
-    #[cfg(feature = "sqs")]
-    pub metadata_service: Arc<dyn MetadataServiceTrait>,
-    #[cfg(feature = "http")]
+    pub metadata_service: Option<Arc<dyn MetadataServiceTrait>>,
     pub cloudfront_signer: Option<Arc<CloudFrontSigner>>,
 }
 
 impl AppState {
-    #[cfg(all(feature = "sqs", feature = "http"))]
     pub fn new(
-        s3_repository: Arc<dyn S3RepositoryTrait>,
+        s3_repository: Option<Arc<dyn S3RepositoryTrait>>,
         dynamo_db_repository: Arc<dyn DynamoDbRepositoryTrait>,
-        metadata_service: Arc<dyn MetadataServiceTrait>,
+        metadata_service: Option<Arc<dyn MetadataServiceTrait>>,
         cloudfront_signer: Option<Arc<CloudFrontSigner>>,
     ) -> Self {
         Self {

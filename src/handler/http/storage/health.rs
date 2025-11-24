@@ -51,21 +51,20 @@ pub fn health_docs(op: TransformOperation) -> TransformOperation {
 mod tests {
     use super::*;
     use crate::handler::http::routes;
-    use crate::repository::mock::{MockDynamoDbRepository, MockS3Repository, MockMetadataService};
+    use crate::repository::mock::{MockDynamoDbRepository, MockMetadataService};
     use crate::state::AppState;
     use axum::http::StatusCode;
     use axum_test::TestServer;
     use std::sync::Arc;
 
     fn create_test_state() -> AppState {
-        let s3_mock = MockS3Repository::new();
         let dynamodb_mock = MockDynamoDbRepository::new();
         let metadata_mock = MockMetadataService::new();
         AppState::new(
-            Arc::new(s3_mock),
+            None,
             Arc::new(dynamodb_mock),
-            Arc::new(metadata_mock),
-            None, // No CloudFront signer in tests
+            Some(Arc::new(metadata_mock)),
+            None,
         )
     }
 

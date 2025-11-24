@@ -29,7 +29,12 @@ async fn main() -> Result<(), Error> {
     let ddb_repo = Arc::new(DynamoDbRepository::new().await);
     let metadata_service = Arc::new(MetadataService::new());
 
-    let state = from_the_hart_storage::state::AppState::new(s3_repo, ddb_repo, metadata_service, None);
+    let state = from_the_hart_storage::state::AppState::new(
+        Some(s3_repo),
+        ddb_repo,
+        Some(metadata_service),
+        None,
+    );
 
     run(service_fn(move |event: LambdaEvent<SqsEvent>| {
         let state = state.clone();
