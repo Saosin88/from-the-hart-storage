@@ -56,6 +56,16 @@ serde_json = "1.0"
 name = "from_the_hart_storage"
 path = "src/lib.rs"
 
+[[bin]]
+name = "bootstrap_http"
+path = "src/bin/bootstrap_http.rs"
+required-features = ["http"]
+
+[[bin]]
+name = "bootstrap_sqs"
+path = "src/bin/bootstrap_sqs.rs"
+required-features = ["sqs"]
+
 
 [profile.release]
 opt-level = "z"

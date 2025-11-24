@@ -1,13 +1,16 @@
 use crate::{
-    handler::http::{dto::{SignedAccessData, SignedAccessResponse}, error::HttpError},
+    error::StorageError,
+    handler::http::{
+        dto::{SignedAccessData, SignedAccessResponse},
+        error::HttpError,
+    },
     state::AppState,
     utils::jwt::extract_user_id_from_jwt,
-    error::StorageError,
 };
 use aide::{axum::IntoApiResponse, transform::TransformOperation};
 use axum::{
     extract::State,
-    http::{header, StatusCode, HeaderMap},
+    http::{header, HeaderMap, StatusCode},
     response::IntoResponse,
     Json,
 };
@@ -17,7 +20,7 @@ pub async fn get_signed_access(
     headers: HeaderMap,
 ) -> impl IntoApiResponse {
     let auth_header = match headers
-        .get(header::AUTHORIZATION)
+        .get("X-From-The-Hart-Authorization")
         .and_then(|h| h.to_str().ok())
     {
         Some(h) => h,
@@ -60,7 +63,13 @@ pub async fn get_signed_access(
     let max_age = (signed_access.expires_at - now).max(0);
     let domain = cloudfront_signer.domain();
 
-    let mut response = (StatusCode::OK, Json(SignedAccessResponse { data: response_data })).into_response();
+    let mut response = (
+        StatusCode::OK,
+        Json(SignedAccessResponse {
+            data: response_data,
+        }),
+    )
+        .into_response();
 
     let response_headers = response.headers_mut();
 
@@ -125,7 +134,7 @@ pub fn get_signed_access_docs(op: TransformOperation) -> TransformOperation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::repository::mock::{MockDynamoDbRepository, MockS3Repository, MockMetadataService};
+    use crate::repository::mock::{MockDynamoDbRepository, MockMetadataService, MockS3Repository};
     use axum::http::{header, StatusCode};
     use std::sync::Arc;
 
@@ -143,7 +152,9 @@ mod tests {
 
         let headers = HeaderMap::new();
 
-        let response = get_signed_access(State(state), headers).await.into_response();
+        let response = get_signed_access(State(state), headers)
+            .await
+            .into_response();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
@@ -166,7 +177,9 @@ mod tests {
             format!("Bearer {}", token).parse().unwrap(),
         );
 
-        let response = get_signed_access(State(state), headers).await.into_response();
+        let response = get_signed_access(State(state), headers)
+            .await
+            .into_response();
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 }

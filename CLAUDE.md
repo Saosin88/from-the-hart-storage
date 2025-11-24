@@ -194,6 +194,30 @@ This pattern allows:
 - Clean separation of concerns
 - Type-safe async operations
 
+## Known Issues & Technical Debt
+
+### Configuration Loading (src/config.rs)
+
+**NEEDS REFACTORING** - Current implementation uses manual environment variable parsing.
+
+**Problem:**
+- Config loading manually parses each environment variable using `std::env::var()`
+- Not elegant or maintainable
+- Was implemented as quick fix to support single underscore env vars (e.g., `APP_CLOUDFRONT_KEY_PAIR_ID`)
+- Original `config` crate implementation required double underscores (`APP_CLOUDFRONT__KEY_PAIR_ID`)
+
+**Current Workaround:**
+Manual parsing in `AppConfig::load()` directly reads env vars and constructs nested structs.
+
+**TODO:**
+Find a better solution that:
+- Supports single underscore naming convention
+- Uses a more elegant/maintainable approach
+- Possibly uses a different config library or custom derive macro
+- Maintains backward compatibility with all existing env vars
+
+**Priority:** Medium - Works but needs improvement for long-term maintainability
+
 ## Related Services
 
 - **Auth Service:** Token validation for authenticated operations

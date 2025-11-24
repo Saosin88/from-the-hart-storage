@@ -551,16 +551,6 @@
 	],
 	"variable": [
 		{
-			"key": "base_url",
-			"value": "https://your-lambda-url.execute-api.af-south-1.amazonaws.com",
-			"type": "string"
-		},
-		{
-			"key": "jwt_token",
-			"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoidGVzdC11c2VyLTEyMyIsImV4cCI6OTk5OTk5OTk5OX0.fake_signature",
-			"type": "string"
-		},
-		{
 			"key": "user_id",
 			"value": "test-user-123",
 			"type": "string"
