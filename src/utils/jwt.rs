@@ -22,11 +22,12 @@ pub fn extract_user_id_from_jwt(auth_header: &str) -> Result<String, StorageErro
 
     let mut validation = Validation::new(Algorithm::RS256);
     validation.insecure_disable_signature_validation();
-    validation.validate_exp = false; // Gateway already validated
+    validation.validate_exp = false;                                                                                                                                │
+    validation.validate_aud = false;
 
     let token_data = decode::<Claims>(
         token,
-        &DecodingKey::from_secret(&[]), // Dummy key since we disabled verification
+        &DecodingKey::from_secret(&[]),
         &validation,
     )
     .map_err(|e| StorageError::JwtParse {
