@@ -92,10 +92,6 @@ impl CloudFrontSigner {
         }
     }
 
-    pub fn domain(&self) -> &str {
-        &self.domain
-    }
-
     pub fn sign_user_directory(&self, user_id: &str) -> Result<SignedAccess, StorageError> {
         let expiration = Utc::now() + Duration::hours(1);
         let expiration_epoch = expiration.timestamp();

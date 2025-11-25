@@ -15,6 +15,8 @@ use axum::{
     Json,
 };
 
+const COOKIE_DOMAIN: &str = ".fromthehart.tech";
+
 pub async fn get_signed_access(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -61,7 +63,6 @@ pub async fn get_signed_access(
 
     let now = chrono::Utc::now().timestamp();
     let max_age = (signed_access.expires_at - now).max(0);
-    let domain = cloudfront_signer.domain();
 
     let mut response = (
         StatusCode::OK,
@@ -77,7 +78,7 @@ pub async fn get_signed_access(
         header::SET_COOKIE,
         format!(
             "CloudFront-Policy={}; Domain={}; Path=/; Secure; HttpOnly; SameSite=None; Max-Age={}",
-            signed_access.policy, domain, max_age
+            signed_access.policy, COOKIE_DOMAIN, max_age
         )
         .parse()
         .unwrap(),
@@ -87,7 +88,7 @@ pub async fn get_signed_access(
         header::SET_COOKIE,
         format!(
             "CloudFront-Signature={}; Domain={}; Path=/; Secure; HttpOnly; SameSite=None; Max-Age={}",
-            signed_access.signature, domain, max_age
+            signed_access.signature, COOKIE_DOMAIN, max_age
         )
         .parse()
         .unwrap(),
@@ -97,7 +98,7 @@ pub async fn get_signed_access(
         header::SET_COOKIE,
         format!(
             "CloudFront-Key-Pair-Id={}; Domain={}; Path=/; Secure; HttpOnly; SameSite=None; Max-Age={}",
-            signed_access.key_pair_id, domain, max_age
+            signed_access.key_pair_id, COOKIE_DOMAIN, max_age
         )
         .parse()
         .unwrap(),
