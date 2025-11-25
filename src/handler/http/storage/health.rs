@@ -1,8 +1,5 @@
 use crate::{
-    handler::http::{
-        dto::HealthResponse,
-        error::HttpErrorResponse,
-    },
+    handler::http::{dto::HealthResponse, error::HttpErrorResponse},
     service::health,
 };
 

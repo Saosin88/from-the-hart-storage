@@ -1,8 +1,4 @@
-use crate::{
-    error::StorageError,
-    repository::DynamoDbRepositoryTrait,
-    service::models::File,
-};
+use crate::{error::StorageError, repository::DynamoDbRepositoryTrait, service::models::File};
 
 pub async fn get_file(
     user_id: &str,

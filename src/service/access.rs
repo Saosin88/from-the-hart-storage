@@ -1,7 +1,11 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use chrono::{Duration, Utc};
 use rsa::pkcs1::DecodeRsaPrivateKey;
-use rsa::{pkcs1v15::SigningKey, signature::{Signer, SignatureEncoding}, RsaPrivateKey};
+use rsa::{
+    pkcs1v15::SigningKey,
+    signature::{SignatureEncoding, Signer},
+    RsaPrivateKey,
+};
 use sha1::Sha1;
 use std::sync::Arc;
 use tracing::{error, info};
@@ -96,7 +100,11 @@ impl CloudFrontSigner {
         let expiration = Utc::now() + Duration::hours(1);
         let expiration_epoch = expiration.timestamp();
 
-        let resource_pattern = format!("https://{}{}/*", self.domain, Self::ensure_leading_slash(user_id));
+        let resource_pattern = format!(
+            "https://{}{}/*",
+            self.domain,
+            Self::ensure_leading_slash(user_id)
+        );
 
         let custom_policy = format!(
             r#"{{"Statement":[{{"Resource":"{}","Condition":{{"DateLessThan":{{"AWS:EpochTime":{}}}}}}}]}}"#,
@@ -184,8 +192,14 @@ r8su2oorFXPtUXJUxWtqNGVTVYxznN7rCe+SK5gdJKW7aSNjSEFT
 
     #[test]
     fn test_ensure_leading_slash() {
-        assert_eq!(CloudFrontSigner::ensure_leading_slash("user123"), "/user123");
-        assert_eq!(CloudFrontSigner::ensure_leading_slash("/user123"), "/user123");
+        assert_eq!(
+            CloudFrontSigner::ensure_leading_slash("user123"),
+            "/user123"
+        );
+        assert_eq!(
+            CloudFrontSigner::ensure_leading_slash("/user123"),
+            "/user123"
+        );
     }
 
     #[test]
@@ -210,11 +224,8 @@ r8su2oorFXPtUXJUxWtqNGVTVYxznN7rCe+SK5gdJKW7aSNjSEFT
 
     #[test]
     fn test_new_empty_key() {
-        let result = CloudFrontSigner::new(
-            "",
-            "K1234567890ABC".to_string(),
-            "example.com".to_string(),
-        );
+        let result =
+            CloudFrontSigner::new("", "K1234567890ABC".to_string(), "example.com".to_string());
         assert!(result.is_err());
     }
 

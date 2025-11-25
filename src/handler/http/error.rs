@@ -46,7 +46,6 @@ impl HttpError {
     }
 }
 
-
 impl IntoResponse for HttpError {
     fn into_response(self) -> Response {
         (self.status, Json(self.response)).into_response()

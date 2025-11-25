@@ -45,13 +45,12 @@ impl AppConfig {
         let environment = env::var("APP_ENVIRONMENT")
             .map_err(|_| ConfigError::Message("APP_ENVIRONMENT is required".to_string()))?;
 
-        let server = if let (Ok(host), Ok(port_str)) = (
-            env::var("APP_SERVER_HOST"),
-            env::var("APP_SERVER_PORT"),
-        ) {
-            let port = port_str.parse::<u16>().map_err(|e| {
-                ConfigError::Message(format!("Invalid APP_SERVER_PORT: {}", e))
-            })?;
+        let server = if let (Ok(host), Ok(port_str)) =
+            (env::var("APP_SERVER_HOST"), env::var("APP_SERVER_PORT"))
+        {
+            let port = port_str
+                .parse::<u16>()
+                .map_err(|e| ConfigError::Message(format!("Invalid APP_SERVER_PORT: {}", e)))?;
             Some(ServerConfig { host, port })
         } else {
             None
@@ -94,17 +93,19 @@ static CONFIG: OnceLock<AppConfig> = OnceLock::new();
 /// Initialize config - must be called after logging is set up
 pub fn init_config() -> Result<(), ConfigError> {
     let cfg = AppConfig::load()?;
-    
+
     // Safe to use tracing here since caller ensures logging is initialized
     tracing::info!("Loaded config: {:#?}", cfg);
-    
-    CONFIG.set(cfg).map_err(|_| {
-        ConfigError::Message("Config already initialized".to_string())
-    })?;
-    
+
+    CONFIG
+        .set(cfg)
+        .map_err(|_| ConfigError::Message("Config already initialized".to_string()))?;
+
     Ok(())
 }
 
 pub fn config() -> &'static AppConfig {
-    CONFIG.get().expect("Config not initialized - call init_config() first")
+    CONFIG
+        .get()
+        .expect("Config not initialized - call init_config() first")
 }

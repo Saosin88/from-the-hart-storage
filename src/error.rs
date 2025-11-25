@@ -10,14 +10,10 @@ pub enum StorageError {
     },
 
     #[error("Service not initialized: {context}")]
-    NotInitialized {
-        context: String,
-    },
+    NotInitialized { context: String },
 
     #[error("Resource not found: {context}")]
-    NotFound {
-        context: String,
-    },
+    NotFound { context: String },
 
     #[error("Internal error: {context}")]
     Internal {
@@ -48,9 +44,7 @@ pub enum StorageError {
     },
 
     #[error("Time calculation error: {context}")]
-    Time {
-        context: String,
-    },
+    Time { context: String },
 
     #[error("URL decoding error: {context}")]
     UrlDecode {
@@ -67,9 +61,7 @@ pub enum StorageError {
     },
 
     #[error("Invalid format: {context}")]
-    InvalidFormat {
-        context: String,
-    },
+    InvalidFormat { context: String },
 
     #[error("CloudFront signing error: {context}")]
     CloudFrontSigning {

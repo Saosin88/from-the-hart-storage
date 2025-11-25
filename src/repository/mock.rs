@@ -28,7 +28,10 @@ impl MockS3Repository {
         Self::default()
     }
 
-    pub fn with_head_object_response(self, response: Result<HeadObjectOutput, StorageError>) -> Self {
+    pub fn with_head_object_response(
+        self,
+        response: Result<HeadObjectOutput, StorageError>,
+    ) -> Self {
         *self.head_object_response.lock().unwrap() = Some(response);
         self
     }
@@ -48,7 +51,7 @@ impl S3RepositoryTrait for MockS3Repository {
     ) -> Result<HeadObjectOutput, StorageError> {
         let mut lock = self.head_object_response.lock().unwrap();
         if let Some(response) = lock.take() {
-             return response;
+            return response;
         }
         Err(StorageError::S3 {
             context: "Mock S3 metadata not configured".to_string(),
@@ -64,7 +67,7 @@ impl S3RepositoryTrait for MockS3Repository {
     ) -> Result<Vec<u8>, StorageError> {
         let mut lock = self.fetch_head_bytes_response.lock().unwrap();
         if let Some(response) = lock.take() {
-             return response;
+            return response;
         }
         Err(StorageError::S3 {
             context: "Mock S3 bytes not configured".to_string(),
@@ -75,7 +78,8 @@ impl S3RepositoryTrait for MockS3Repository {
 
 type PutFileCall = (File, Vec<ViewLink>);
 type PutFileResponse = Arc<Mutex<Option<Result<(), StorageError>>>>;
-type FindViewLinksResponse = Arc<Mutex<Option<Result<(Vec<ViewLink>, Option<String>), StorageError>>>>;
+type FindViewLinksResponse =
+    Arc<Mutex<Option<Result<(Vec<ViewLink>, Option<String>), StorageError>>>>;
 type GetFileResponse = Arc<Mutex<Option<Result<Option<File>, StorageError>>>>;
 
 #[derive(Clone)]
@@ -107,7 +111,10 @@ impl MockDynamoDbRepository {
         self
     }
 
-    pub fn with_find_view_links_response(self, response: Result<(Vec<ViewLink>, Option<String>), StorageError>) -> Self {
+    pub fn with_find_view_links_response(
+        self,
+        response: Result<(Vec<ViewLink>, Option<String>), StorageError>,
+    ) -> Self {
         *self.find_view_links_response.lock().unwrap() = Some(response);
         self
     }
@@ -140,7 +147,7 @@ impl DynamoDbRepositoryTrait for MockDynamoDbRepository {
                 Err(_) => response,
             }
         } else {
-             Ok(())
+            Ok(())
         }
     }
 
@@ -153,15 +160,19 @@ impl DynamoDbRepositoryTrait for MockDynamoDbRepository {
     ) -> Result<(Vec<ViewLink>, Option<String>), StorageError> {
         let mut lock = self.find_view_links_response.lock().unwrap();
         if let Some(response) = lock.take() {
-             return response;
+            return response;
         }
         Ok((vec![], None))
     }
 
-    async fn get_file(&self, _user_id: &str, _file_path: &str) -> Result<Option<File>, StorageError> {
+    async fn get_file(
+        &self,
+        _user_id: &str,
+        _file_path: &str,
+    ) -> Result<Option<File>, StorageError> {
         let mut lock = self.get_file_response.lock().unwrap();
         if let Some(response) = lock.take() {
-             return response;
+            return response;
         }
         Ok(None)
     }

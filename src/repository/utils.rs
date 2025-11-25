@@ -160,8 +160,11 @@ pub fn file_to_dynamo_item(file: &File) -> HashMap<String, AttributeValue> {
     item
 }
 
-pub fn dynamo_item_to_view_link(item: &HashMap<String, AttributeValue>) -> Result<ViewLink, crate::error::StorageError> {
-    let viewer_id = item.get("PK")
+pub fn dynamo_item_to_view_link(
+    item: &HashMap<String, AttributeValue>,
+) -> Result<ViewLink, crate::error::StorageError> {
+    let viewer_id = item
+        .get("PK")
         .and_then(|v| v.as_s().ok())
         .and_then(|s| s.strip_prefix("USER#"))
         .ok_or_else(|| crate::error::StorageError::DynamoDb {
@@ -170,7 +173,8 @@ pub fn dynamo_item_to_view_link(item: &HashMap<String, AttributeValue>) -> Resul
         })?
         .to_string();
 
-    let resource_id = item.get("resource_id")
+    let resource_id = item
+        .get("resource_id")
         .and_then(|v| v.as_s().ok())
         .ok_or_else(|| crate::error::StorageError::DynamoDb {
             context: "Missing resource_id".to_string(),
@@ -178,7 +182,8 @@ pub fn dynamo_item_to_view_link(item: &HashMap<String, AttributeValue>) -> Resul
         })?
         .to_string();
 
-    let owner_id = item.get("owner_id")
+    let owner_id = item
+        .get("owner_id")
         .and_then(|v| v.as_s().ok())
         .ok_or_else(|| crate::error::StorageError::DynamoDb {
             context: "Missing owner_id".to_string(),
@@ -186,7 +191,8 @@ pub fn dynamo_item_to_view_link(item: &HashMap<String, AttributeValue>) -> Resul
         })?
         .to_string();
 
-    let grant_id = item.get("grant_id")
+    let grant_id = item
+        .get("grant_id")
         .and_then(|v| v.as_s().ok())
         .ok_or_else(|| crate::error::StorageError::DynamoDb {
             context: "Missing grant_id".to_string(),
@@ -194,32 +200,38 @@ pub fn dynamo_item_to_view_link(item: &HashMap<String, AttributeValue>) -> Resul
         })?
         .to_string();
 
-    let created_date = item.get("created_date")
+    let created_date = item
+        .get("created_date")
         .and_then(|v| v.as_n().ok())
         .and_then(|n| n.parse::<i64>().ok())
         .unwrap_or(0);
 
-    let folder_prefix = item.get("folder_prefix")
+    let folder_prefix = item
+        .get("folder_prefix")
         .and_then(|v| v.as_s().ok())
         .unwrap_or(&"".to_string())
         .to_string();
 
-    let name = item.get("name")
+    let name = item
+        .get("name")
         .and_then(|v| v.as_s().ok())
         .unwrap_or(&"".to_string())
         .to_string();
 
-    let media_type = item.get("media_type")
+    let media_type = item
+        .get("media_type")
         .and_then(|v| v.as_s().ok())
         .unwrap_or(&"".to_string())
         .to_string();
 
-    let size_bytes = item.get("size_bytes")
+    let size_bytes = item
+        .get("size_bytes")
         .and_then(|v| v.as_n().ok())
         .and_then(|n| n.parse::<i64>().ok())
         .unwrap_or(0);
 
-    let item_type = item.get("item_type")
+    let item_type = item
+        .get("item_type")
         .and_then(|v| v.as_s().ok())
         .unwrap_or(&"".to_string())
         .to_string();
@@ -248,7 +260,9 @@ pub fn dynamo_key_to_json(key: &HashMap<String, AttributeValue>) -> serde_json::
     serde_json::Value::Object(map)
 }
 
-pub fn json_to_dynamo_key(json: &serde_json::Value) -> Result<HashMap<String, AttributeValue>, anyhow::Error> {
+pub fn json_to_dynamo_key(
+    json: &serde_json::Value,
+) -> Result<HashMap<String, AttributeValue>, anyhow::Error> {
     if let serde_json::Value::Object(map) = json {
         let mut key = HashMap::new();
         for (k, v) in map {
@@ -303,8 +317,11 @@ fn json_to_attribute_value(json: &serde_json::Value) -> Result<AttributeValue, a
     }
 }
 
-pub fn dynamo_item_to_file(item: &HashMap<String, AttributeValue>) -> Result<File, crate::error::StorageError> {
-    let bucket_key = item.get("bucket_key")
+pub fn dynamo_item_to_file(
+    item: &HashMap<String, AttributeValue>,
+) -> Result<File, crate::error::StorageError> {
+    let bucket_key = item
+        .get("bucket_key")
         .and_then(|v| v.as_s().ok())
         .ok_or_else(|| crate::error::StorageError::DynamoDb {
             context: "Missing bucket_key".to_string(),
@@ -312,7 +329,8 @@ pub fn dynamo_item_to_file(item: &HashMap<String, AttributeValue>) -> Result<Fil
         })?
         .to_string();
 
-    let bucket = item.get("bucket")
+    let bucket = item
+        .get("bucket")
         .and_then(|v| v.as_s().ok())
         .ok_or_else(|| crate::error::StorageError::DynamoDb {
             context: "Missing bucket".to_string(),
@@ -320,7 +338,8 @@ pub fn dynamo_item_to_file(item: &HashMap<String, AttributeValue>) -> Result<Fil
         })?
         .to_string();
 
-    let owner_id = item.get("owner_id")
+    let owner_id = item
+        .get("owner_id")
         .and_then(|v| v.as_s().ok())
         .ok_or_else(|| crate::error::StorageError::DynamoDb {
             context: "Missing owner_id".to_string(),
@@ -328,7 +347,8 @@ pub fn dynamo_item_to_file(item: &HashMap<String, AttributeValue>) -> Result<Fil
         })?
         .to_string();
 
-    let file_id = item.get("resource_id")
+    let file_id = item
+        .get("resource_id")
         .and_then(|v| v.as_s().ok())
         .ok_or_else(|| crate::error::StorageError::DynamoDb {
             context: "Missing resource_id".to_string(),
@@ -336,7 +356,8 @@ pub fn dynamo_item_to_file(item: &HashMap<String, AttributeValue>) -> Result<Fil
         })?
         .to_string();
 
-    let file_name = item.get("file_name")
+    let file_name = item
+        .get("file_name")
         .and_then(|v| v.as_s().ok())
         .ok_or_else(|| crate::error::StorageError::DynamoDb {
             context: "Missing file_name".to_string(),
@@ -344,7 +365,8 @@ pub fn dynamo_item_to_file(item: &HashMap<String, AttributeValue>) -> Result<Fil
         })?
         .to_string();
 
-    let file_path = item.get("file_path")
+    let file_path = item
+        .get("file_path")
         .and_then(|v| v.as_s().ok())
         .ok_or_else(|| crate::error::StorageError::DynamoDb {
             context: "Missing file_path".to_string(),
@@ -352,27 +374,32 @@ pub fn dynamo_item_to_file(item: &HashMap<String, AttributeValue>) -> Result<Fil
         })?
         .to_string();
 
-    let folder_prefix = item.get("folder_prefix")
+    let folder_prefix = item
+        .get("folder_prefix")
         .and_then(|v| v.as_s().ok())
         .unwrap_or(&"".to_string())
         .to_string();
 
-    let created_date = item.get("created_date")
+    let created_date = item
+        .get("created_date")
         .and_then(|v| v.as_n().ok())
         .and_then(|n| n.parse::<i64>().ok())
         .unwrap_or(0);
 
-    let size_bytes = item.get("size_bytes")
+    let size_bytes = item
+        .get("size_bytes")
         .and_then(|v| v.as_n().ok())
         .and_then(|n| n.parse::<i64>().ok())
         .unwrap_or(0);
 
-    let content_type = item.get("content_type")
+    let content_type = item
+        .get("content_type")
         .and_then(|v| v.as_s().ok())
         .unwrap_or(&"application/octet-stream".to_string())
         .to_string();
 
-    let media_type_str = item.get("media_type")
+    let media_type_str = item
+        .get("media_type")
         .and_then(|v| v.as_s().ok())
         .unwrap_or(&"Unknown".to_string())
         .to_string();

@@ -1,8 +1,4 @@
-use crate::{
-    error::StorageError,
-    repository::DynamoDbRepositoryTrait,
-    service::models::ViewLink,
-};
+use crate::{error::StorageError, repository::DynamoDbRepositoryTrait, service::models::ViewLink};
 
 pub async fn list_folder_contents(
     user_id: &str,

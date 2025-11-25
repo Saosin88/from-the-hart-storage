@@ -1,4 +1,7 @@
-use crate::{handler::http::storage::{access, health, list}, state::AppState};
+use crate::{
+    handler::http::storage::{access, health, list},
+    state::AppState,
+};
 
 use aide::{
     axum::{routing, ApiRouter},

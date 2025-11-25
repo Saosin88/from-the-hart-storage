@@ -7,7 +7,6 @@ use image::ImageMetadataExtractor;
 
 use std::path::Path;
 
-
 use async_trait::async_trait;
 
 #[async_trait]

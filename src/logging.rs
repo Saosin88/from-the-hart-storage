@@ -41,14 +41,14 @@ pub fn init_logging() {
             .unwrap_or_else(|| "unknown".to_string());
 
         eprintln!(
-            "{{\"level\":\"ERROR\",\"panic\":\"{}\",\"location\":\"{}\"}}", 
-            payload.replace('"', "\\\""), 
+            "{{\"level\":\"ERROR\",\"panic\":\"{}\",\"location\":\"{}\"}}",
+            payload.replace('"', "\\\""),
             location
         );
 
         tracing::error!(
-            panic = %payload, 
-            location = %location, 
+            panic = %payload,
+            location = %location,
             "PANIC: Application panicked"
         );
     }));

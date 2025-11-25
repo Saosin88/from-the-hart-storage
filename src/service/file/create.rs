@@ -82,7 +82,10 @@ fn parse_and_init_file(mut file: File) -> Result<File, StorageError> {
     Ok(file)
 }
 
-async fn enrich_with_s3_metadata(file: &mut File, s3_repository: &(impl S3RepositoryTrait + ?Sized)) {
+async fn enrich_with_s3_metadata(
+    file: &mut File,
+    s3_repository: &(impl S3RepositoryTrait + ?Sized),
+) {
     match s3_repository
         .get_object_metadata(&file.bucket, &file.bucket_key)
         .await
@@ -153,8 +156,8 @@ async fn enrich_with_media_metadata(
 mod tests {
     use super::*;
     use crate::repository::mock::{MockDynamoDbRepository, MockS3Repository};
-    use aws_sdk_s3::primitives::DateTime;
     use aws_sdk_s3::operation::head_object::HeadObjectOutput;
+    use aws_sdk_s3::primitives::DateTime;
     use std::time::SystemTime;
 
     struct MockMetadataService;
@@ -165,7 +168,10 @@ mod tests {
     }
 
     fn create_test_file() -> File {
-        File::new("user123/folder/test.jpg".to_string(), "test-bucket".to_string())
+        File::new(
+            "user123/folder/test.jpg".to_string(),
+            "test-bucket".to_string(),
+        )
     }
 
     #[tokio::test]
@@ -178,7 +184,7 @@ mod tests {
                 .last_modified(DateTime::from(SystemTime::now()))
                 .build()))
             .with_fetch_head_bytes_response(Ok(vec![0; 100]));
-        
+
         let dynamodb_mock = MockDynamoDbRepository::new();
         let metadata_mock = MockMetadataService;
 
@@ -189,14 +195,14 @@ mod tests {
         let calls = dynamodb_mock.put_file_calls.lock().unwrap();
         assert_eq!(calls.len(), 1);
         let (saved_file, view_links) = &calls[0];
-        
+
         assert_eq!(&*saved_file.bucket, "test-bucket");
         assert_eq!(&*saved_file.bucket_key, "user123/folder/test.jpg");
         assert_eq!(&*saved_file.content_type, "image/jpeg");
         assert_eq!(saved_file.size_bytes, 1024);
-        
+
         // 1 file link + 1 folder link (folder)
-        assert_eq!(view_links.len(), 2); 
+        assert_eq!(view_links.len(), 2);
     }
 
     #[tokio::test]
@@ -204,19 +210,19 @@ mod tests {
         let file = create_test_file();
         // S3 metadata fails, but process should continue
         let s3_mock = MockS3Repository::new()
-            .with_head_object_response(Err(StorageError::S3 { 
-                context: "fail".into(), 
-                source: anyhow::anyhow!("fail") 
+            .with_head_object_response(Err(StorageError::S3 {
+                context: "fail".into(),
+                source: anyhow::anyhow!("fail"),
             }))
             .with_fetch_head_bytes_response(Ok(vec![]));
-            
+
         let dynamodb_mock = MockDynamoDbRepository::new();
         let metadata_mock = MockMetadataService;
 
         let result = handle_file_created(file, &s3_mock, &dynamodb_mock, &metadata_mock).await;
 
         assert!(result.is_ok());
-        
+
         let calls = dynamodb_mock.put_file_calls.lock().unwrap();
         assert_eq!(calls.len(), 1);
     }
@@ -227,20 +233,20 @@ mod tests {
         let s3_mock = MockS3Repository::new()
             .with_head_object_response(Ok(HeadObjectOutput::builder().build()))
             .with_fetch_head_bytes_response(Ok(vec![]));
-            
-        let dynamodb_mock = MockDynamoDbRepository::new()
-            .with_put_file_response(Err(StorageError::DynamoDb { 
-                context: "fail".into(), 
-                source: anyhow::anyhow!("fail") 
+
+        let dynamodb_mock =
+            MockDynamoDbRepository::new().with_put_file_response(Err(StorageError::DynamoDb {
+                context: "fail".into(),
+                source: anyhow::anyhow!("fail"),
             }));
-            
+
         let metadata_mock = MockMetadataService;
 
         let result = handle_file_created(file, &s3_mock, &dynamodb_mock, &metadata_mock).await;
 
         assert!(result.is_err());
         match result.unwrap_err() {
-            StorageError::DynamoDb { .. } => {},
+            StorageError::DynamoDb { .. } => {}
             _ => panic!("Expected DynamoDb error"),
         }
     }

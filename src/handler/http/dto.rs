@@ -80,8 +80,7 @@ pub type StorageListResponse = DataResponse<StorageListData>;
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[schemars(description = "Detailed file information")]
 pub struct FileData {
-    pub bucket_key: String,
-    pub bucket: String,
+    pub file_url: String,
     pub owner_id: String,
     pub file_id: String,
     pub file_name: String,
@@ -98,14 +97,21 @@ pub type FileResponse = DataResponse<FileData>;
 
 impl From<crate::service::models::File> for FileResponse {
     fn from(model: crate::service::models::File) -> Self {
-        let media_metadata = model.media_metadata.as_ref().and_then(|m| {
-            serde_json::to_value(m).ok()
-        });
+        let cf_config = crate::config::config()
+            .cloudfront
+            .as_ref()
+            .expect("CloudFront configuration is required - APP_CLOUDFRONT_DOMAIN must be set");
+
+        let file_url = format!("https://{}/{}", cf_config.domain, model.bucket_key);
+
+        let media_metadata = model
+            .media_metadata
+            .as_ref()
+            .and_then(|m| serde_json::to_value(m).ok());
 
         Self {
             data: FileData {
-                bucket_key: model.bucket_key.to_string(),
-                bucket: model.bucket.to_string(),
+                file_url,
                 owner_id: model.owner_id.to_string(),
                 file_id: model.file_id.to_string(),
                 file_name: model.file_name.to_string(),
@@ -124,13 +130,18 @@ impl From<crate::service::models::File> for FileResponse {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[schemars(description = "CloudFront signed access data for secure file downloads")]
 pub struct SignedAccessData {
-    #[schemars(description = "Resource pattern that this signature grants access to (e.g., /{user_id}/*)")]
+    #[schemars(
+        description = "Resource pattern that this signature grants access to (e.g., /{user_id}/*)"
+    )]
     pub resource_pattern: String,
-    #[schemars(description = "Expiration timestamp (UNIX epoch seconds) when this signature expires")]
+    #[schemars(
+        description = "Expiration timestamp (UNIX epoch seconds) when this signature expires"
+    )]
     pub expires_at: i64,
-    #[schemars(description = "Query parameters to append to file URLs for signed access (Policy, Signature, Key-Pair-Id)")]
+    #[schemars(
+        description = "Query parameters to append to file URLs for signed access (Policy, Signature, Key-Pair-Id)"
+    )]
     pub query_params: String,
 }
 
 pub type SignedAccessResponse = DataResponse<SignedAccessData>;
-
