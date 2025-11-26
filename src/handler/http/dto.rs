@@ -145,3 +145,41 @@ pub struct SignedAccessData {
 }
 
 pub type SignedAccessResponse = DataResponse<SignedAccessData>;
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(description = "Request body for creating a new folder")]
+pub struct CreateFolderRequest {
+    #[schemars(
+        description = "Folder path relative to user root, must end with '/' (e.g., 'media/')"
+    )]
+    pub path: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[schemars(description = "Folder metadata")]
+pub struct FolderData {
+    #[schemars(description = "Full path of the folder")]
+    pub folder_path: String,
+    #[schemars(description = "Name of the folder")]
+    pub folder_name: String,
+    #[schemars(description = "Path of the parent folder")]
+    pub parent_path: String,
+    #[schemars(description = "Folder creation timestamp in milliseconds since UNIX epoch")]
+    pub created_date: i64,
+    #[schemars(description = "Owner user ID")]
+    pub owner_id: String,
+}
+
+pub type CreateFolderResponse = DataResponse<FolderData>;
+
+impl From<crate::service::models::ViewLink> for FolderData {
+    fn from(model: crate::service::models::ViewLink) -> Self {
+        Self {
+            folder_path: model.resource_id.to_string(),
+            folder_name: model.name.to_string(),
+            parent_path: model.folder_prefix.to_string(),
+            created_date: model.created_date,
+            owner_id: model.owner_id.to_string(),
+        }
+    }
+}

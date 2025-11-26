@@ -1,5 +1,5 @@
 use crate::{
-    handler::http::storage::{access, health, list},
+    handler::http::storage::{access, folder, health, list},
     state::AppState,
 };
 
@@ -42,6 +42,10 @@ pub fn configure_routes(state: AppState) -> Router {
         .api_route(
             "/access",
             routing::get_with(access::get_signed_access, access::get_signed_access_docs),
+        )
+        .api_route(
+            "/folders",
+            routing::post_with(folder::create_folder, folder::create_folder_docs),
         )
         .route(
             "/{user_id}",

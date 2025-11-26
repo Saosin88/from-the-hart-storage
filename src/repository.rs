@@ -28,6 +28,14 @@ pub trait DynamoDbRepositoryTrait: Send + Sync {
     ) -> Result<(Vec<ViewLink>, Option<String>), StorageError>;
 
     async fn get_file(&self, user_id: &str, file_path: &str) -> Result<Option<File>, StorageError>;
+
+    async fn folder_exists(&self, user_id: &str, folder_path: &str) -> Result<bool, StorageError>;
+
+    async fn create_folder(
+        &self,
+        user_id: &str,
+        folder_path: &str,
+    ) -> Result<ViewLink, StorageError>;
 }
 
 #[async_trait]

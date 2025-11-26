@@ -248,3 +248,4 @@ To improve testability:
 - **Auth Service:** Token validation for authenticated operations
 - **API Reverse Proxy:** Routes requests from Cloudflare
 - **Infrastructure:** Terraform configs for S3, DynamoDB, IAM
+- Dont use mod.rs for module decleration. See how its done in the rest of the project.

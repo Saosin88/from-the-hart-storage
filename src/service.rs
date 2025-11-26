@@ -9,6 +9,8 @@ pub mod metadata;
 
 pub mod file;
 
+pub mod folder;
+
 pub mod models;
 
 pub use models::{File, HealthStatus};

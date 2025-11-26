@@ -205,4 +205,211 @@ impl crate::repository::DynamoDbRepositoryTrait for DynamoDbRepository {
             Ok(None)
         }
     }
+
+    async fn folder_exists(&self, user_id: &str, folder_path: &str) -> Result<bool, StorageError> {
+        use crate::service::file::utils::{get_folder_name, get_parent_folder_path};
+
+        let parent_path = get_parent_folder_path(folder_path);
+        let folder_name = get_folder_name(folder_path);
+
+        let gsi2_pk = format!("VIEWER#{}#FOLDER#{}", user_id, parent_path);
+        let gsi2_sk_prefix = format!("TYPE#FOLDER#{}#", folder_name);
+
+        let output = self
+            .client
+            .query()
+            .table_name(&self.table_name)
+            .index_name("view-link-index")
+            .key_condition_expression("GSI2PK = :pk AND begins_with(GSI2SK, :sk_prefix)")
+            .expression_attribute_values(":pk", aws_sdk_dynamodb::types::AttributeValue::S(gsi2_pk))
+            .expression_attribute_values(
+                ":sk_prefix",
+                aws_sdk_dynamodb::types::AttributeValue::S(gsi2_sk_prefix),
+            )
+            .limit(1)
+            .send()
+            .await
+            .map_err(|e| StorageError::DynamoDb {
+                context: "Failed to check folder existence".to_string(),
+                source: e.into(),
+            })?;
+
+        Ok(output.items.is_some_and(|items| !items.is_empty()))
+    }
+
+    async fn create_folder(
+        &self,
+        user_id: &str,
+        folder_path: &str,
+    ) -> Result<ViewLink, StorageError> {
+        use crate::service::file::utils::{get_folder_name, get_parent_folder_path};
+        use crate::utils::time::now_as_unix_millis;
+
+        let parent_path = get_parent_folder_path(folder_path);
+        let folder_name = get_folder_name(folder_path);
+
+        let view_link = ViewLink {
+            viewer_id: user_id.into(),
+            resource_id: format!("FOLDER#{}", folder_path).into(),
+            owner_id: user_id.into(),
+            grant_id: "OWNER".into(),
+            created_date: now_as_unix_millis(),
+            folder_prefix: parent_path.into(),
+            name: folder_name.into(),
+            media_type: "Folder".into(),
+            size_bytes: 0,
+            is_folder: true,
+        };
+
+        let item = super::utils::view_link_to_dynamo_item(&view_link);
+
+        self.client
+            .put_item()
+            .table_name(&self.table_name)
+            .set_item(Some(item))
+            .send()
+            .await
+            .map_err(|e| StorageError::DynamoDb {
+                context: "Failed to create folder".to_string(),
+                source: e.into(),
+            })?;
+
+        Ok(view_link)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::repository::mock::MockDynamoDbRepository;
+    use crate::repository::DynamoDbRepositoryTrait;
+
+    #[tokio::test]
+    async fn test_folder_exists_returns_true_when_folder_found() {
+        let mock_repo = MockDynamoDbRepository::new().with_folder_exists_response(Ok(true));
+
+        let result = mock_repo.folder_exists("user123", "media/photos/").await;
+
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+
+        let calls = mock_repo.folder_exists_calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, "user123");
+        assert_eq!(calls[0].1, "media/photos/");
+    }
+
+    #[tokio::test]
+    async fn test_folder_exists_returns_false_when_folder_not_found() {
+        let mock_repo = MockDynamoDbRepository::new().with_folder_exists_response(Ok(false));
+
+        let result = mock_repo.folder_exists("user123", "media/photos/").await;
+
+        assert!(result.is_ok());
+        assert!(!result.unwrap());
+
+        let calls = mock_repo.folder_exists_calls();
+        assert_eq!(calls.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_folder_exists_handles_error() {
+        let mock_repo = MockDynamoDbRepository::new().with_folder_exists_response(Err(
+            StorageError::DynamoDb {
+                context: "Query failed".to_string(),
+                source: anyhow::anyhow!("Test error"),
+            },
+        ));
+
+        let result = mock_repo.folder_exists("user123", "media/photos/").await;
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            StorageError::DynamoDb { context, .. } => {
+                assert_eq!(context, "Query failed");
+            }
+            _ => panic!("Expected DynamoDb error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_create_folder_success() {
+        let expected_view_link = ViewLink {
+            viewer_id: "user123".into(),
+            resource_id: "FOLDER#media/photos/".into(),
+            owner_id: "user123".into(),
+            grant_id: "OWNER".into(),
+            created_date: 1234567890,
+            folder_prefix: "media/".into(),
+            name: "photos".into(),
+            media_type: "Folder".into(),
+            size_bytes: 0,
+            is_folder: true,
+        };
+
+        let mock_repo = MockDynamoDbRepository::new()
+            .with_create_folder_response(Ok(expected_view_link.clone()));
+
+        let result = mock_repo.create_folder("user123", "media/photos/").await;
+
+        assert!(result.is_ok());
+        let view_link = result.unwrap();
+        assert_eq!(view_link.viewer_id.as_ref(), "user123");
+        assert_eq!(view_link.resource_id.as_ref(), "FOLDER#media/photos/");
+        assert_eq!(view_link.folder_prefix.as_ref(), "media/");
+        assert_eq!(view_link.name.as_ref(), "photos");
+        assert_eq!(view_link.media_type.as_ref(), "Folder");
+        assert!(view_link.is_folder);
+
+        let calls = mock_repo.create_folder_calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, "user123");
+        assert_eq!(calls[0].1, "media/photos/");
+    }
+
+    #[tokio::test]
+    async fn test_create_folder_root_level() {
+        let expected_view_link = ViewLink {
+            viewer_id: "user123".into(),
+            resource_id: "FOLDER#media/".into(),
+            owner_id: "user123".into(),
+            grant_id: "OWNER".into(),
+            created_date: 1234567890,
+            folder_prefix: "".into(),
+            name: "media".into(),
+            media_type: "Folder".into(),
+            size_bytes: 0,
+            is_folder: true,
+        };
+
+        let mock_repo = MockDynamoDbRepository::new()
+            .with_create_folder_response(Ok(expected_view_link.clone()));
+
+        let result = mock_repo.create_folder("user123", "media/").await;
+
+        assert!(result.is_ok());
+        let view_link = result.unwrap();
+        assert_eq!(view_link.folder_prefix.as_ref(), "");
+        assert_eq!(view_link.name.as_ref(), "media");
+    }
+
+    #[tokio::test]
+    async fn test_create_folder_handles_error() {
+        let mock_repo = MockDynamoDbRepository::new().with_create_folder_response(Err(
+            StorageError::DynamoDb {
+                context: "PutItem failed".to_string(),
+                source: anyhow::anyhow!("Test error"),
+            },
+        ));
+
+        let result = mock_repo.create_folder("user123", "media/photos/").await;
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            StorageError::DynamoDb { context, .. } => {
+                assert_eq!(context, "PutItem failed");
+            }
+            _ => panic!("Expected DynamoDb error"),
+        }
+    }
 }

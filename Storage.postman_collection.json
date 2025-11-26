@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
 		"name": "From The Hart - Storage API",
-		"description": "Secure cloud storage API for From The Hart platform.\n\n## Features\n- Health monitoring and status checks\n- CloudFront signed URLs for secure file access\n- File and folder listing with metadata\n- RESTful API design\n- Comprehensive error handling\n\n## Authentication\nMost endpoints require a valid JWT token in the Authorization header.\n\n## Environment Variables\n- `base_url`: Base URL for the Storage API (e.g., https://your-lambda-url.execute-api.af-south-1.amazonaws.com)\n- `jwt_token`: Valid JWT token for authenticated requests\n- `user_id`: User ID for testing user-specific endpoints",
+		"description": "Secure cloud storage API for From The Hart platform.\n\n## Features\n- Health monitoring and status checks\n- CloudFront signed URLs for secure file access\n- File and folder listing with metadata\n- Folder creation and management\n- RESTful API design\n- Comprehensive error handling\n\n## Authentication\nMost endpoints require a valid JWT token in the X-From-The-Hart-Authorization header.\n\n## Environment Variables\n- `base_url`: Base URL for the Storage API (e.g., https://your-lambda-url.execute-api.af-south-1.amazonaws.com)\n- `jwt_token`: Valid JWT token for authenticated requests\n- `user_id`: User ID for testing user-specific endpoints",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"item": [
@@ -296,6 +296,318 @@
 			"name": "Files & Folders",
 			"item": [
 				{
+					"name": "Create Folder",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response has folder data\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('data');",
+									"    pm.expect(jsonData.data).to.have.property('folder_path');",
+									"    pm.expect(jsonData.data).to.have.property('folder_name');",
+									"    pm.expect(jsonData.data).to.have.property('parent_path');",
+									"    pm.expect(jsonData.data).to.have.property('created_date');",
+									"    pm.expect(jsonData.data).to.have.property('owner_id');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-From-The-Hart-Authorization",
+								"value": "Bearer {{jwt_token}}",
+								"type": "text",
+								"description": "JWT token for authentication"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"path\": \"media/\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/storage/folders",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"storage",
+								"folders"
+							]
+						},
+						"description": "Create a new folder in the user's storage.\n\n**Authentication:** Requires a valid JWT token in the X-From-The-Hart-Authorization header.\n\n**Path Requirements:**\n- Must end with a trailing slash (e.g., 'media/')\n- Must not start with a leading slash\n- Must not contain '//' sequences\n- Must not contain '.' or '..' path segments\n\n**Parent Folder Requirements:**\n- Parent folder must exist before creating nested folders\n- Root-level folders (e.g., 'media/') can be created without a parent\n\n**Idempotent Operation:**\n- Creating an existing folder returns the folder metadata without error\n\n**Examples:**\n- Root folder: {\"path\": \"media/\"}\n- Nested folder: {\"path\": \"media/photos/\"} (requires 'media/' to exist)"
+					},
+					"response": [
+						{
+							"name": "Success - Root Folder",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-From-The-Hart-Authorization",
+										"value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"path\": \"media/\"\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}/storage/folders",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"storage",
+										"folders"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"data\": {\n        \"folder_path\": \"media/\",\n        \"folder_name\": \"media\",\n        \"parent_path\": \"\",\n        \"created_date\": 1700000000000,\n        \"owner_id\": \"user123\"\n    }\n}"
+						},
+						{
+							"name": "Success - Nested Folder",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-From-The-Hart-Authorization",
+										"value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"path\": \"media/photos/\"\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}/storage/folders",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"storage",
+										"folders"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"data\": {\n        \"folder_path\": \"media/photos/\",\n        \"folder_name\": \"photos\",\n        \"parent_path\": \"media/\",\n        \"created_date\": 1700000100000,\n        \"owner_id\": \"user123\"\n    }\n}"
+						},
+						{
+							"name": "Missing Authorization Header",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"path\": \"media/\"\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}/storage/folders",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"storage",
+										"folders"
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"error\": {\n        \"message\": \"Missing Authorization header\",\n        \"details\": \"Authorization header is required\"\n    }\n}"
+						},
+						{
+							"name": "Invalid JWT Token",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-From-The-Hart-Authorization",
+										"value": "Bearer invalid_token",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"path\": \"media/\"\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}/storage/folders",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"storage",
+										"folders"
+									]
+								}
+							},
+							"status": "Unauthorized",
+							"code": 401,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"error\": {\n        \"message\": \"Invalid JWT token\",\n        \"details\": \"Token validation failed\"\n    }\n}"
+						},
+						{
+							"name": "Invalid Path - No Trailing Slash",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-From-The-Hart-Authorization",
+										"value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"path\": \"media\"\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}/storage/folders",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"storage",
+										"folders"
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"error\": {\n        \"message\": \"Invalid folder path\",\n        \"details\": \"Folder path must end with '/'\"\n    }\n}"
+						},
+						{
+							"name": "Parent Folder Not Found",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-From-The-Hart-Authorization",
+										"value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"path\": \"media/photos/\"\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}/storage/folders",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"storage",
+										"folders"
+									]
+								}
+							},
+							"status": "Not Found",
+							"code": 404,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"error\": {\n        \"message\": \"Parent folder not found\",\n        \"details\": \"Parent folder 'media/' must be created first\"\n    }\n}"
+						}
+					]
+				},
+				{
 					"name": "List User Root Directory",
 					"event": [
 						{
@@ -526,7 +838,7 @@
 					"response": []
 				}
 			],
-			"description": "Endpoints for listing directories and retrieving file metadata.\n\n**Path Format:**\n- Folder listing: Path ends with `/` (e.g., `/user123/documents/`)\n- File details: Path does NOT end with `/` (e.g., `/user123/photo.jpg`)\n\n**Note:** These endpoints return metadata only. To download actual file content, use CloudFront signed URLs obtained from the `/storage/access` endpoint."
+			"description": "Endpoints for managing folders, listing directories, and retrieving file metadata.\n\n**Folder Operations:**\n- POST /storage/folders - Create new folders with proper authentication\n- Supports nested folder creation (parent must exist first)\n- Idempotent - creating existing folder succeeds\n\n**Path Format:**\n- Folder listing: Path ends with `/` (e.g., `/user123/documents/`)\n- File details: Path does NOT end with `/` (e.g., `/user123/photo.jpg`)\n\n**Note:** These endpoints return metadata only. To download actual file content, use CloudFront signed URLs obtained from the `/storage/access` endpoint."
 		}
 	],
 	"event": [

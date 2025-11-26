@@ -81,6 +81,10 @@ type PutFileResponse = Arc<Mutex<Option<Result<(), StorageError>>>>;
 type FindViewLinksResponse =
     Arc<Mutex<Option<Result<(Vec<ViewLink>, Option<String>), StorageError>>>>;
 type GetFileResponse = Arc<Mutex<Option<Result<Option<File>, StorageError>>>>;
+type FolderExistsCall = (String, String);
+type FolderExistsResponse = Arc<Mutex<Option<Result<bool, StorageError>>>>;
+type CreateFolderCall = (String, String);
+type CreateFolderResponse = Arc<Mutex<Option<Result<ViewLink, StorageError>>>>;
 
 #[derive(Clone)]
 pub struct MockDynamoDbRepository {
@@ -88,6 +92,10 @@ pub struct MockDynamoDbRepository {
     pub put_file_response: PutFileResponse,
     pub find_view_links_response: FindViewLinksResponse,
     pub get_file_response: GetFileResponse,
+    pub folder_exists_calls: Arc<Mutex<Vec<FolderExistsCall>>>,
+    pub folder_exists_response: FolderExistsResponse,
+    pub create_folder_calls: Arc<Mutex<Vec<CreateFolderCall>>>,
+    pub create_folder_response: CreateFolderResponse,
 }
 
 impl Default for MockDynamoDbRepository {
@@ -97,6 +105,10 @@ impl Default for MockDynamoDbRepository {
             put_file_response: Arc::new(Mutex::new(Some(Ok(())))),
             find_view_links_response: Arc::new(Mutex::new(None)),
             get_file_response: Arc::new(Mutex::new(None)),
+            folder_exists_calls: Arc::new(Mutex::new(Vec::new())),
+            folder_exists_response: Arc::new(Mutex::new(None)),
+            create_folder_calls: Arc::new(Mutex::new(Vec::new())),
+            create_folder_response: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -122,6 +134,24 @@ impl MockDynamoDbRepository {
     pub fn with_get_file_response(self, response: Result<Option<File>, StorageError>) -> Self {
         *self.get_file_response.lock().unwrap() = Some(response);
         self
+    }
+
+    pub fn with_folder_exists_response(self, response: Result<bool, StorageError>) -> Self {
+        *self.folder_exists_response.lock().unwrap() = Some(response);
+        self
+    }
+
+    pub fn with_create_folder_response(self, response: Result<ViewLink, StorageError>) -> Self {
+        *self.create_folder_response.lock().unwrap() = Some(response);
+        self
+    }
+
+    pub fn folder_exists_calls(&self) -> Vec<FolderExistsCall> {
+        self.folder_exists_calls.lock().unwrap().clone()
+    }
+
+    pub fn create_folder_calls(&self) -> Vec<CreateFolderCall> {
+        self.create_folder_calls.lock().unwrap().clone()
     }
 }
 
@@ -175,6 +205,39 @@ impl DynamoDbRepositoryTrait for MockDynamoDbRepository {
             return response;
         }
         Ok(None)
+    }
+
+    async fn folder_exists(&self, user_id: &str, folder_path: &str) -> Result<bool, StorageError> {
+        self.folder_exists_calls
+            .lock()
+            .unwrap()
+            .push((user_id.to_string(), folder_path.to_string()));
+
+        let mut lock = self.folder_exists_response.lock().unwrap();
+        if let Some(response) = lock.take() {
+            return response;
+        }
+        Ok(false)
+    }
+
+    async fn create_folder(
+        &self,
+        user_id: &str,
+        folder_path: &str,
+    ) -> Result<ViewLink, StorageError> {
+        self.create_folder_calls
+            .lock()
+            .unwrap()
+            .push((user_id.to_string(), folder_path.to_string()));
+
+        let mut lock = self.create_folder_response.lock().unwrap();
+        if let Some(response) = lock.take() {
+            return response;
+        }
+        Err(StorageError::DynamoDb {
+            context: "Mock not configured".to_string(),
+            source: anyhow::anyhow!("Mock not configured"),
+        })
     }
 }
 
