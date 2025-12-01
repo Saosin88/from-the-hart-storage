@@ -19,16 +19,16 @@ dependencies = [
 
 [[package]]
 name = "aide"
-version = "0.15.1"
+version = "0.16.0-alpha.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6966317188cdfe54c58c0900a195d021294afb3ece9b7073d09e4018dbb1e3a2"
+checksum = "dc156b16d6d8e9bb84a7cba8b93fc399c0654bfbb927832ea7ab326d5d6895e2"
 dependencies = [
  "axum",
  "bytes",
  "cfg-if",
  "http 1.4.0",
  "indexmap 2.12.1",
- "schemars 0.9.0",
+ "schemars 1.1.0",
  "serde",
  "serde_json",
  "serde_qs",
@@ -586,9 +586,9 @@ dependencies = [
 
 [[package]]
 name = "aws_lambda_events"
-version = "0.18.0"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "831de96bc2c9d2e570664f4f016c8d56d86ce2a58b3a1d6268c4ba2f269684fe"
+checksum = "ac59c9b189a3bd75146633e1c87f35fb727f53b03c7f331af789ff1293a9f350"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -602,22 +602,6 @@ dependencies = [
  "serde_dynamo",
  "serde_json",
  "serde_with",
-]
-
-[[package]]
-name = "aws_lambda_events"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac59c9b189a3bd75146633e1c87f35fb727f53b03c7f331af789ff1293a9f350"
-dependencies = [
- "base64 0.22.1",
- "bytes",
- "http 1.4.0",
- "http-body 1.0.1",
- "http-serde",
- "query_map",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -1407,7 +1391,7 @@ dependencies = [
  "aws-sdk-dynamodb",
  "aws-sdk-s3",
  "aws-sdk-ssm",
- "aws_lambda_events 0.18.0",
+ "aws_lambda_events",
  "axum",
  "axum-test",
  "base64 0.22.1",
@@ -1421,7 +1405,7 @@ dependencies = [
  "lambda_http",
  "lambda_runtime",
  "rsa",
- "schemars 0.9.0",
+ "schemars 1.1.0",
  "serde",
  "serde_json",
  "sha1",
@@ -2119,7 +2103,7 @@ version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a106755a9079a3ed20b4262e32c9a5efa127c97546cb2ecf69bbf3d17dbf970b"
 dependencies = [
- "aws_lambda_events 1.0.1",
+ "aws_lambda_events",
  "bytes",
  "encoding_rs",
  "futures-util",
@@ -3034,9 +3018,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4cd191f9397d57d581cddd31014772520aa448f65ef991055d7f61582c65165f"
 dependencies = [
  "dyn-clone",
- "indexmap 2.12.1",
  "ref-cast",
- "schemars_derive",
  "serde",
  "serde_json",
 ]
@@ -3048,16 +3030,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9558e172d4e8533736ba97870c4b2cd63f84b382a3d6eb063da41b91cce17289"
 dependencies = [
  "dyn-clone",
+ "indexmap 2.12.1",
  "ref-cast",
+ "schemars_derive",
  "serde",
  "serde_json",
 ]
 
 [[package]]
 name = "schemars_derive"
-version = "0.9.0"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5016d94c77c6d32f0b8e08b781f7dc8a90c2007d4e77472cc2807bc10a8438fe"
+checksum = "301858a4023d78debd2353c7426dc486001bddc91ae31a76fb1f55132f7e2633"
 dependencies = [
  "proc-macro2",
  "quote",

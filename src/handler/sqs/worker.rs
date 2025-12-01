@@ -35,9 +35,9 @@ pub async fn handle_sqs_event(
             b
         } else {
             error!(message_id = %message_id, "SQS message has no body");
-            failures.push(BatchItemFailure {
-                item_identifier: message_id.to_string(),
-            });
+            let mut failure = BatchItemFailure::default();
+            failure.item_identifier = message_id.to_string();
+            failures.push(failure);
             continue;
         };
 
@@ -45,9 +45,9 @@ pub async fn handle_sqs_event(
             Ok(ev) => ev,
             Err(e) => {
                 error!(message_id = %message_id, error = %e, "Failed to parse S3 event from SQS body");
-                failures.push(BatchItemFailure {
-                    item_identifier: message_id.to_string(),
-                });
+                let mut failure = BatchItemFailure::default();
+                failure.item_identifier = message_id.to_string();
+                failures.push(failure);
                 continue;
             }
         };
@@ -123,9 +123,9 @@ pub async fn handle_sqs_event(
                             error_source = ?e.source(),
                             "Failed to handle file creation"
                         );
-                        failures.push(BatchItemFailure {
-                            item_identifier: message_id.to_string(),
-                        });
+                        let mut failure = BatchItemFailure::default();
+                        failure.item_identifier = message_id.to_string();
+                        failures.push(failure);
                     }
                 }
                 // name if name.starts_with("ObjectRemoved:") => {
@@ -138,9 +138,9 @@ pub async fn handle_sqs_event(
         }
     }
 
-    Ok(SqsBatchResponse {
-        batch_item_failures: failures,
-    })
+    let mut response = SqsBatchResponse::default();
+    response.batch_item_failures = failures;
+    Ok(response)
 }
 
 #[cfg(test)]
@@ -196,13 +196,12 @@ mod tests {
             ]
         }"#;
 
-        let event = SqsEvent {
-            records: vec![SqsMessage {
-                message_id: Some("msg-id".into()),
-                body: Some(s3_event_json.into()),
-                ..Default::default()
-            }],
-        };
+        let mut message = SqsMessage::default();
+        message.message_id = Some("msg-id".into());
+        message.body = Some(s3_event_json.into());
+
+        let mut event = SqsEvent::default();
+        event.records = vec![message];
 
         // Configure mocks for success
         // We need to mock S3 metadata call which happens inside handle_file_created
