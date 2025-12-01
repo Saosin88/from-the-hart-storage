@@ -1,4 +1,4 @@
-use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+use jsonwebtoken::dangerous::insecure_decode;
 use serde::{Deserialize, Serialize};
 
 use crate::error::StorageError;
@@ -20,18 +20,12 @@ pub fn extract_user_id_from_jwt(auth_header: &str) -> Result<String, StorageErro
 
     let token = &auth_header[7..];
 
-    let mut validation = Validation::new(Algorithm::RS256);
-    validation.insecure_disable_signature_validation();
-    validation.validate_exp = false;
-    validation.validate_aud = false;
-
-    let token_data =
-        decode::<Claims>(token, &DecodingKey::from_secret(&[]), &validation).map_err(|e| {
-            StorageError::JwtParse {
-                context: "Failed to decode JWT".to_string(),
-                source: anyhow::Error::new(e),
-            }
-        })?;
+    let token_data = insecure_decode::<Claims>(token).map_err(|e| {
+        StorageError::JwtParse {
+            context: "Failed to decode JWT".to_string(),
+            source: anyhow::Error::new(e),
+        }
+    })?;
 
     Ok(token_data.claims.user_id)
 }
