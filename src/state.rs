@@ -19,6 +19,9 @@ pub struct AppState {
     pub metadata_service: Option<Arc<dyn MetadataServiceTrait>>,
     #[cfg(feature = "http")]
     pub cloudfront_signer: Option<Arc<CloudFrontSigner>>,
+    #[cfg(feature = "http")]
+    pub cloudfront_domain: Option<String>,
+    pub start_time: std::time::Instant,
 }
 
 impl AppState {
@@ -36,6 +39,9 @@ impl AppState {
             metadata_service,
             #[cfg(feature = "http")]
             cloudfront_signer,
+            #[cfg(feature = "http")]
+            cloudfront_domain: None,
+            start_time: std::time::Instant::now(),
         }
     }
 }

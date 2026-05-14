@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::Arc;
 
 use crate::service::file::utils::{get_folder_name, get_parent_folder_path};
 use crate::utils::time;
@@ -14,16 +13,16 @@ pub struct HealthStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct File {
-    pub bucket_key: Arc<str>,
-    pub bucket: Arc<str>,
-    pub owner_id: Arc<str>,
-    pub file_id: Arc<str>,
-    pub file_name: Arc<str>,
-    pub file_path: Arc<str>,
-    pub folder_prefix: Arc<str>,
+    pub bucket_key: String,
+    pub bucket: String,
+    pub owner_id: String,
+    pub file_id: String,
+    pub file_name: String,
+    pub file_path: String,
+    pub folder_prefix: String,
     pub created_date: i64,
     pub size_bytes: i64,
-    pub content_type: Arc<str>,
+    pub content_type: String,
     pub media_type: MediaType,
     pub media_metadata: Option<MediaMetadata>,
 }
@@ -31,16 +30,16 @@ pub struct File {
 impl File {
     pub fn new(bucket_key: String, bucket: String) -> Self {
         Self {
-            bucket_key: bucket_key.into(),
-            folder_prefix: "".into(),
-            bucket: bucket.into(),
-            owner_id: "".into(),
-            file_id: "".into(),
-            file_name: "".into(),
-            file_path: "".into(),
+            bucket_key,
+            folder_prefix: String::new(),
+            bucket,
+            owner_id: String::new(),
+            file_id: String::new(),
+            file_name: String::new(),
+            file_path: String::new(),
             created_date: time::now_as_unix_millis(),
             size_bytes: 0,
-            content_type: "application/octet-stream".into(),
+            content_type: "application/octet-stream".to_string(),
             media_type: MediaType::Unknown,
             media_metadata: None,
         }
@@ -100,48 +99,97 @@ impl GpsCoordinates {
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", content = "value")]
+pub enum ResourceId {
+    File(String),
+    Folder(String),
+}
+
+impl ResourceId {
+    pub fn is_folder(&self) -> bool {
+        matches!(self, ResourceId::Folder(_))
+    }
+
+    pub fn as_str(&self) -> &str {
+        match self {
+            ResourceId::File(s) | ResourceId::Folder(s) => s.as_str(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ViewLink {
-    pub viewer_id: Arc<str>,
-    pub resource_id: Arc<str>,
-    pub owner_id: Arc<str>,
-    pub grant_id: Arc<str>,
+    pub viewer_id: String,
+    pub resource_id: ResourceId,
+    pub owner_id: String,
+    pub grant_id: String,
     pub created_date: i64,
-    pub folder_prefix: Arc<str>,
-    pub name: Arc<str>,
-    pub media_type: Arc<str>,
+    pub folder_prefix: String,
+    pub name: String,
+    pub media_type: String,
     pub size_bytes: i64,
-    pub is_folder: bool,
 }
 
 impl ViewLink {
+    pub fn is_folder(&self) -> bool {
+        self.resource_id.is_folder()
+    }
+
+    pub fn resource_id_str(&self) -> &str {
+        self.resource_id.as_str()
+    }
+
     pub fn for_owner(file: &File) -> Self {
         Self {
             viewer_id: file.owner_id.clone(),
-            resource_id: file.file_id.clone(),
+            resource_id: ResourceId::File(file.file_id.clone()),
             owner_id: file.owner_id.clone(),
-            grant_id: "OWNER".into(),
+            grant_id: "OWNER".to_string(),
             created_date: file.created_date,
             folder_prefix: file.folder_prefix.clone(),
             name: file.file_name.clone(),
-            media_type: file.media_type.to_string().into(),
+            media_type: file.media_type.to_string(),
             size_bytes: file.size_bytes,
-            is_folder: false,
         }
     }
 
     pub fn for_owner_folder(file: &File, full_folder_path: &str) -> Self {
         Self {
             viewer_id: file.owner_id.clone(),
-            resource_id: full_folder_path.into(),
+            resource_id: ResourceId::Folder(full_folder_path.to_string()),
             owner_id: file.owner_id.clone(),
-            grant_id: "OWNER".into(),
+            grant_id: "OWNER".to_string(),
             created_date: file.created_date,
-            folder_prefix: get_parent_folder_path(full_folder_path).into(),
-            name: get_folder_name(full_folder_path).into(),
-            media_type: "Folder".into(),
+            folder_prefix: get_parent_folder_path(full_folder_path),
+            name: get_folder_name(full_folder_path),
+            media_type: "Folder".to_string(),
             size_bytes: 0,
-            is_folder: true,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resource_id_enum_serde_roundtrip() {
+        // File variant
+        let file_id = ResourceId::File("abc123".to_string());
+        let json = serde_json::to_value(&file_id).unwrap();
+        assert_eq!(json, serde_json::json!({"type": "File", "value": "abc123"}));
+        let deserialized: ResourceId = serde_json::from_value(json).unwrap();
+        assert_eq!(deserialized, file_id);
+
+        // Folder variant
+        let folder_id = ResourceId::Folder("media/photos/".to_string());
+        let json = serde_json::to_value(&folder_id).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({"type": "Folder", "value": "media/photos/"})
+        );
+        let deserialized: ResourceId = serde_json::from_value(json).unwrap();
+        assert_eq!(deserialized, folder_id);
     }
 }
 

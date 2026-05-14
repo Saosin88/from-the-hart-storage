@@ -1,7 +1,7 @@
 mod extractor;
 mod image;
 
-use crate::service::File;
+use crate::service::models::File;
 use extractor::MetadataExtractor;
 use image::ImageMetadataExtractor;
 

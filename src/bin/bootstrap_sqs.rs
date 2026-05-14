@@ -4,7 +4,6 @@ use from_the_hart_storage::{
     logging,
     repository::{dynamodb::DynamoDbRepository, s3::S3Repository},
     service::metadata::MetadataService,
-    utils::time,
 };
 
 use aws_lambda_events::event::sqs::SqsEvent;
@@ -14,7 +13,6 @@ use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    time::init_start_time();
     logging::init_logging();
 
     config::init_config().map_err(|e| Error::from(format!("Failed to load config: {}", e)))?;

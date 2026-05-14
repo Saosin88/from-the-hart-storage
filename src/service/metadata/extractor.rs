@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use crate::service::File;
+use crate::service::models::File;
 
 #[async_trait]
 pub trait MetadataExtractor: Send + Sync {

@@ -112,9 +112,10 @@ mod tests {
         folder_name: &str,
         parent_path: &str,
     ) -> ViewLink {
+        use crate::service::models::ResourceId;
         ViewLink {
             viewer_id: user_id.into(),
-            resource_id: folder_path.into(),
+            resource_id: ResourceId::Folder(folder_path.into()),
             owner_id: user_id.into(),
             grant_id: "OWNER".into(),
             created_date: time::now_as_unix_millis(),
@@ -122,7 +123,6 @@ mod tests {
             name: folder_name.into(),
             media_type: "Folder".into(),
             size_bytes: 0,
-            is_folder: true,
         }
     }
 

@@ -1,6 +1,6 @@
 use crate::{
     error::StorageError,
-    service::{file::create::handle_file_created, File},
+    service::{file::create::handle_file_created, models::File},
     state::AppState,
     utils::string,
 };

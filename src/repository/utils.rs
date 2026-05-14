@@ -1,7 +1,7 @@
 use aws_sdk_dynamodb::types::AttributeValue;
 use std::collections::HashMap;
 
-use crate::service::{models::ViewLink, File};
+use crate::service::models::{File, ViewLink};
 
 pub fn view_link_to_dynamo_item(view_link: &ViewLink) -> HashMap<String, AttributeValue> {
     let mut item = HashMap::new();
@@ -11,26 +11,18 @@ pub fn view_link_to_dynamo_item(view_link: &ViewLink) -> HashMap<String, Attribu
         AttributeValue::S(format!("USER#{}", view_link.viewer_id)),
     );
 
-    let sk = if view_link.is_folder {
-        let folder_path = view_link
-            .resource_id
-            .strip_prefix("FOLDER#")
-            .unwrap_or(&view_link.resource_id);
-        format!("VIEWLINK#{}#FOLDER#{}", view_link.owner_id, folder_path)
-    } else {
-        format!(
-            "VIEWLINK#{}#FILE#{}",
-            view_link.owner_id, view_link.resource_id
-        )
+    let (sk, item_type, resource_id_str) = match &view_link.resource_id {
+        crate::service::models::ResourceId::Folder(folder_path) => {
+            let sk = format!("VIEWLINK#{}#FOLDER#{}", view_link.owner_id, folder_path);
+            (sk, "FOLDER_VIEW_LINK", format!("FOLDER#{}", folder_path))
+        }
+        crate::service::models::ResourceId::File(file_id) => {
+            let sk = format!("VIEWLINK#{}#FILE#{}", view_link.owner_id, file_id);
+            (sk, "FILE_VIEW_LINK", file_id.clone())
+        }
     };
 
     item.insert("SK".to_string(), AttributeValue::S(sk));
-
-    let item_type = if view_link.is_folder {
-        "FOLDER_VIEW_LINK"
-    } else {
-        "FILE_VIEW_LINK"
-    };
 
     item.insert(
         "item_type".to_string(),
@@ -38,7 +30,7 @@ pub fn view_link_to_dynamo_item(view_link: &ViewLink) -> HashMap<String, Attribu
     );
     item.insert(
         "resource_id".to_string(),
-        AttributeValue::S(view_link.resource_id.to_string()),
+        AttributeValue::S(resource_id_str),
     );
     item.insert(
         "owner_id".to_string(),
@@ -77,13 +69,16 @@ pub fn view_link_to_dynamo_item(view_link: &ViewLink) -> HashMap<String, Attribu
         )),
     );
 
-    let gsi2_sk = if view_link.is_folder {
-        format!("TYPE#FOLDER#{}#{}", view_link.name, view_link.owner_id)
-    } else {
-        format!(
-            "TYPE#FILE#{}#{}#{}",
-            view_link.created_date, view_link.media_type, view_link.resource_id
-        )
+    let gsi2_sk = match &view_link.resource_id {
+        crate::service::models::ResourceId::Folder(_) => {
+            format!("TYPE#FOLDER#{}#{}", view_link.name, view_link.owner_id)
+        }
+        crate::service::models::ResourceId::File(file_id) => {
+            format!(
+                "TYPE#FILE#{}#{}#{}",
+                view_link.created_date, view_link.media_type, file_id
+            )
+        }
     };
 
     item.insert("GSI2SK".to_string(), AttributeValue::S(gsi2_sk));
@@ -236,19 +231,26 @@ pub fn dynamo_item_to_view_link(
         .unwrap_or(&"".to_string())
         .to_string();
 
-    let is_folder = item_type == "FOLDER_VIEW_LINK";
+    let resource_id = if item_type == "FOLDER_VIEW_LINK" {
+        let path = resource_id
+            .strip_prefix("FOLDER#")
+            .unwrap_or(&resource_id)
+            .to_string();
+        crate::service::models::ResourceId::Folder(path)
+    } else {
+        crate::service::models::ResourceId::File(resource_id)
+    };
 
     Ok(ViewLink {
-        viewer_id: viewer_id.into(),
-        resource_id: resource_id.into(),
-        owner_id: owner_id.into(),
-        grant_id: grant_id.into(),
+        viewer_id,
+        resource_id,
+        owner_id,
+        grant_id,
         created_date,
-        folder_prefix: folder_prefix.into(),
-        name: name.into(),
-        media_type: media_type.into(),
+        folder_prefix,
+        name,
+        media_type,
         size_bytes,
-        is_folder,
     })
 }
 
@@ -423,17 +425,132 @@ pub fn dynamo_item_to_file(
     };
 
     Ok(File {
-        bucket_key: bucket_key.into(),
-        bucket: bucket.into(),
-        owner_id: owner_id.into(),
-        file_id: file_id.into(),
-        file_name: file_name.into(),
-        file_path: file_path.into(),
-        folder_prefix: folder_prefix.into(),
+        bucket_key,
+        bucket,
+        owner_id,
+        file_id,
+        file_name,
+        file_path,
+        folder_prefix,
         created_date,
         size_bytes,
-        content_type: content_type.into(),
+        content_type,
         media_type,
         media_metadata,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::service::models::{
+        File, GpsCoordinates, ImageMetadata, MediaMetadata, MediaType, ResourceId, ViewLink,
+    };
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_file_to_dynamo_and_back() {
+        let mut exif = HashMap::new();
+        exif.insert("Make".to_string(), "Canon".to_string());
+
+        let file = File {
+            bucket_key: "user123/photos/vacation.jpg".into(),
+            bucket: "test-bucket".into(),
+            owner_id: "user123".into(),
+            file_id: "sha256-hash-of-bucket+key".into(),
+            file_name: "vacation.jpg".into(),
+            file_path: "photos/vacation.jpg".into(),
+            folder_prefix: "photos/".into(),
+            created_date: 1700000000000,
+            size_bytes: 1048576,
+            content_type: "image/jpeg".into(),
+            media_type: MediaType::Image,
+            media_metadata: Some(MediaMetadata::Image(ImageMetadata {
+                width: 1920,
+                height: 1080,
+                exif: Some(exif),
+                gps: Some(GpsCoordinates {
+                    latitude: 37.7749,
+                    longitude: -122.4194,
+                    altitude: Some(30.0),
+                }),
+            })),
+        };
+
+        let item = file_to_dynamo_item(&file);
+        let result = dynamo_item_to_file(&item).unwrap();
+
+        assert_eq!(result, file);
+    }
+
+    #[test]
+    fn test_view_link_file_to_dynamo_and_back() {
+        let view_link = ViewLink {
+            viewer_id: "user123".into(),
+            resource_id: ResourceId::File("some-file-id".to_string()),
+            owner_id: "user123".into(),
+            grant_id: "OWNER".into(),
+            created_date: 1700000000000,
+            folder_prefix: "photos/".into(),
+            name: "photo.jpg".into(),
+            media_type: "Image".into(),
+            size_bytes: 1048576,
+        };
+
+        let item = view_link_to_dynamo_item(&view_link);
+        let result = dynamo_item_to_view_link(&item).unwrap();
+
+        assert_eq!(result, view_link);
+    }
+
+    #[test]
+    fn test_view_link_folder_to_dynamo_and_back() {
+        let view_link = ViewLink {
+            viewer_id: "user123".into(),
+            resource_id: ResourceId::Folder("some/path/".to_string()),
+            owner_id: "user123".into(),
+            grant_id: "OWNER".into(),
+            created_date: 1700000000000,
+            folder_prefix: "some/".into(),
+            name: "path".into(),
+            media_type: "Folder".into(),
+            size_bytes: 0,
+        };
+
+        let item = view_link_to_dynamo_item(&view_link);
+        let result = dynamo_item_to_view_link(&item).unwrap();
+
+        assert_eq!(result, view_link);
+    }
+
+    #[test]
+    fn test_dynamo_key_json_roundtrip() {
+        let mut key = HashMap::new();
+        key.insert(
+            "PK".to_string(),
+            AttributeValue::S("USER#user123".to_string()),
+        );
+        key.insert(
+            "SK".to_string(),
+            AttributeValue::S("FILE#photos/vacation.jpg".to_string()),
+        );
+        key.insert("is_public".to_string(), AttributeValue::Bool(true));
+        key.insert("version".to_string(), AttributeValue::N("42".to_string()));
+
+        let json = dynamo_key_to_json(&key);
+        let result = json_to_dynamo_key(&json).unwrap();
+
+        // DynamoDB numbers are preserved as strings in JSON (to avoid precision loss),
+        // so N round-trips as S. Compare string representations.
+        assert_eq!(key.len(), result.len());
+        for (k, v) in &key {
+            let rv = result.get(k).unwrap();
+            match (v, rv) {
+                (AttributeValue::S(a), AttributeValue::S(b)) => assert_eq!(a, b),
+                (AttributeValue::N(a), AttributeValue::S(b)) => assert_eq!(a, b),
+                (AttributeValue::Bool(a), AttributeValue::Bool(b)) => assert_eq!(a, b),
+                _ => panic!("Mismatched attribute types for key: {}", k),
+            }
+        }
+    }
 }

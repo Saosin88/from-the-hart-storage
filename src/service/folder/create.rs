@@ -75,17 +75,17 @@ mod tests {
     use crate::utils::time;
 
     fn mock_view_link(user_id: &str, folder_path: &str) -> ViewLink {
+        use crate::service::models::ResourceId;
         ViewLink {
             viewer_id: user_id.into(),
-            resource_id: folder_path.into(),
+            resource_id: ResourceId::Folder(folder_path.into()),
             owner_id: user_id.into(),
             grant_id: "OWNER".into(),
             created_date: time::now_as_unix_millis(),
-            folder_prefix: get_parent_folder_path(folder_path).into(),
-            name: get_folder_name(folder_path).into(),
+            folder_prefix: get_parent_folder_path(folder_path),
+            name: get_folder_name(folder_path),
             media_type: "Folder".into(),
             size_bytes: 0,
-            is_folder: true,
         }
     }
 
@@ -169,9 +169,9 @@ mod tests {
 
         assert!(result.is_ok());
         let view_link = result.unwrap();
-        assert_eq!(&*view_link.resource_id, "media/");
+        assert_eq!(view_link.resource_id.as_str(), "media/");
         assert_eq!(&*view_link.name, "media");
-        assert!(view_link.is_folder);
+        assert!(view_link.is_folder());
 
         let folder_exists_calls = mock_repo.folder_exists_calls();
         assert_eq!(folder_exists_calls.len(), 1);

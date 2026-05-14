@@ -1,15 +1,6 @@
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use chrono_tz::Tz;
-use std::{
-    sync::OnceLock,
-    time::{SystemTime, UNIX_EPOCH},
-};
-
-pub static START_TIME: OnceLock<SystemTime> = OnceLock::new();
-
-pub fn init_start_time() {
-    START_TIME.get_or_init(SystemTime::now);
-}
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn current_timestamp_millis() -> Result<u128, String> {
     SystemTime::now()
@@ -23,13 +14,6 @@ pub fn now_as_unix_millis() -> i64 {
         .duration_since(UNIX_EPOCH)
         .expect("System time is before Unix epoch")
         .as_millis() as i64
-}
-
-pub fn uptime_in_secs(start_time: SystemTime) -> Result<u64, String> {
-    start_time
-        .elapsed()
-        .map(|d| d.as_secs())
-        .map_err(|e| format!("Failed to calculate uptime: {}", e))
 }
 
 pub fn parse_media_datetime_with_offset(date_str: &str, offset: Option<&str>) -> Option<i64> {

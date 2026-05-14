@@ -71,9 +71,18 @@ pub async fn handle_file_request(
         }
     } else {
         // File Retrieval
+        let cf_domain = match &state.cloudfront_domain {
+            Some(d) => d.clone(),
+            None => {
+                return HttpError::from(crate::error::StorageError::NotInitialized {
+                    context: "CloudFront domain not configured".into(),
+                })
+                .into_response();
+            }
+        };
         match crate::service::file::get::get_file(&path_params.user_id, path, repo.as_ref()).await {
             Ok(Some(file)) => {
-                let response = FileResponse::from(file);
+                let response = FileResponse::from_file(file, &cf_domain);
                 (StatusCode::OK, Json(response)).into_response()
             }
             Ok(None) => {
@@ -119,7 +128,6 @@ pub fn handle_file_request_docs(op: TransformOperation) -> TransformOperation {
 mod tests {
     use super::*;
     use crate::repository::mock::{MockDynamoDbRepository, MockMetadataService};
-    use crate::service::models::File;
     use crate::state::AppState;
     use axum::http::StatusCode;
     use std::sync::Arc;
@@ -138,16 +146,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_file_request_get_file_success() {
-        let (state, dynamodb_mock) = create_test_state();
+        let (mut state, _dynamodb_mock) = create_test_state();
+        state.cloudfront_domain = Some("test.cloudfront.net".into());
 
-        let _file = File::new("user1/test.jpg".into(), "bucket".into());
-        dynamodb_mock.with_put_file_response(Ok(())); // Not used here but good practice
-                                                      // We need to mock get_file response.
-                                                      // Wait, MockDynamoDbRepository currently returns Ok(None) for get_file.
-                                                      // We need to update MockDynamoDbRepository to support mocking get_file.
-                                                      // Since I cannot easily update the mock in this step without breaking flow,
-                                                      // I will assume I will update the mock in the next step.
-                                                      // For now, let's test the NOT_FOUND case which returns None by default.
+        // MockDynamoDbRepository returns Ok(None) by default for get_file — testing NOT_FOUND path.
 
         let path_params = PathParams {
             user_id: "user1".into(),

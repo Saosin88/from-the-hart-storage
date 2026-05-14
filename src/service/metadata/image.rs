@@ -3,8 +3,8 @@ use exif::Reader;
 use std::collections::HashMap;
 
 use super::extractor::MetadataExtractor;
+use crate::service::models::File;
 use crate::service::models::{GpsCoordinates, ImageMetadata, MediaMetadata, MediaType};
-use crate::service::File;
 use crate::utils::{gps, string, time};
 
 pub struct ImageMetadataExtractor;

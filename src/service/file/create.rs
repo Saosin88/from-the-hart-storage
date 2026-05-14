@@ -5,7 +5,7 @@ use crate::utils::string;
 use crate::{
     error::StorageError,
     repository::{DynamoDbRepositoryTrait, S3RepositoryTrait},
-    service::File,
+    service::models::File,
     utils::time,
 };
 
@@ -70,14 +70,14 @@ fn parse_and_init_file(mut file: File) -> Result<File, StorageError> {
         })?;
 
     file.owner_id = owner.into();
-    file.file_id = string::sha256_hash(&format!("{}/{}", bucket, key)).into();
+    file.file_id = string::sha256_hash(&format!("{}/{}", bucket, key));
     file.file_name = Path::new(path)
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or(path)
         .into();
     file.file_path = path.into();
-    file.folder_prefix = calculate_folder_prefix(path).into();
+    file.folder_prefix = calculate_folder_prefix(path);
 
     Ok(file)
 }

@@ -1,13 +1,14 @@
 use crate::{
     handler::http::{dto::HealthResponse, error::HttpErrorResponse},
     service::health,
+    state::AppState,
 };
 
 use aide::{axum::IntoApiResponse, transform::TransformOperation};
-use axum::{http::StatusCode, response::IntoResponse, Json};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 
-pub async fn health() -> impl IntoApiResponse {
-    match health::get_health_status() {
+pub async fn health(State(state): State<AppState>) -> impl IntoApiResponse {
+    match health::get_health_status(state.start_time) {
         Ok(status) => {
             let response = HealthResponse::from(status);
             (StatusCode::OK, Json(response)).into_response()
@@ -55,19 +56,19 @@ mod tests {
     use std::sync::Arc;
 
     fn create_test_state() -> AppState {
-        let dynamodb_mock = MockDynamoDbRepository::new();
         let metadata_mock = MockMetadataService::new();
-        AppState::new(
+        let mut state = AppState::new(
             None,
-            Arc::new(dynamodb_mock),
+            Arc::new(MockDynamoDbRepository::new()),
             Some(Arc::new(metadata_mock)),
             None,
-        )
+        );
+        state.start_time = std::time::Instant::now();
+        state
     }
 
     #[tokio::test]
     async fn test_health_endpoint_returns_ok_when_service_initialized() {
-        crate::utils::time::init_start_time();
         let app = routes::configure_routes(create_test_state());
         let server = TestServer::new(app).unwrap();
         let response = server.get("/storage/health").await;
@@ -79,7 +80,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_health_endpoint_response_structure() {
-        crate::utils::time::init_start_time();
         let app = routes::configure_routes(create_test_state());
         let server = TestServer::new(app).unwrap();
         let response = server.get("/storage/health").await;
@@ -93,8 +93,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_health_status_returns_ok() {
-        crate::utils::time::init_start_time();
-        let result = health::get_health_status();
+        let result = health::get_health_status(std::time::Instant::now());
         assert!(result.is_ok());
         let status = result.unwrap();
         assert!(status.timestamp > 0);

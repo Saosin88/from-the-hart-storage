@@ -4,7 +4,6 @@ use from_the_hart_storage::{
     logging,
     repository::{dynamodb::DynamoDbRepository, ssm::SsmRepository},
     service::access::CloudFrontSigner,
-    utils::time,
 };
 
 use lambda_http::Error;
@@ -15,7 +14,6 @@ use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    time::init_start_time();
     logging::init_logging();
 
     config::init_config().map_err(|e| Error::from(format!("Failed to load config: {}", e)))?;

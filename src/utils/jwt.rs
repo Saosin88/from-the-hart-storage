@@ -1,3 +1,16 @@
+//! JWT utility for extracting user identity from pre-verified tokens.
+//!
+//! **Security Note:** This service uses `jsonwebtoken::dangerous::insecure_decode`
+//! to extract the `user_id` claim WITHOUT verifying the JWT signature. This is
+//! intentional and safe because:
+//!
+//! 1. The Cloudflare Worker API Gateway (the sole entry point) validates all JWT
+//!    signatures BEFORE forwarding requests to this service.
+//! 2. This service is not publicly accessible — all traffic flows through the gateway.
+//! 3. Signature verification here would be redundant and add latency.
+//!
+//! If this service is ever exposed directly, signature verification MUST be added.
+
 use jsonwebtoken::dangerous::insecure_decode;
 use serde::{Deserialize, Serialize};
 
@@ -20,11 +33,10 @@ pub fn extract_user_id_from_jwt(auth_header: &str) -> Result<String, StorageErro
 
     let token = &auth_header[7..];
 
-    let token_data = insecure_decode::<Claims>(token).map_err(|e| {
-        StorageError::JwtParse {
-            context: "Failed to decode JWT".to_string(),
-            source: anyhow::Error::new(e),
-        }
+    // SAFETY: token signature verified by Cloudflare Worker API Gateway before reaching this service
+    let token_data = insecure_decode::<Claims>(token).map_err(|e| StorageError::JwtParse {
+        context: "Failed to decode JWT".to_string(),
+        source: anyhow::Error::new(e),
     })?;
 
     Ok(token_data.claims.user_id)

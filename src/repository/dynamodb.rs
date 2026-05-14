@@ -9,7 +9,7 @@ use tokio::sync::OnceCell;
 use crate::{
     config::config,
     error::StorageError,
-    service::{models::ViewLink, File},
+    service::models::{File, ViewLink},
 };
 
 use super::utils::{file_to_dynamo_item, view_link_to_dynamo_item};
@@ -250,15 +250,14 @@ impl crate::repository::DynamoDbRepositoryTrait for DynamoDbRepository {
 
         let view_link = ViewLink {
             viewer_id: user_id.into(),
-            resource_id: format!("FOLDER#{}", folder_path).into(),
+            resource_id: crate::service::models::ResourceId::Folder(folder_path.to_string()),
             owner_id: user_id.into(),
             grant_id: "OWNER".into(),
             created_date: now_as_unix_millis(),
-            folder_prefix: parent_path.into(),
-            name: folder_name.into(),
+            folder_prefix: parent_path,
+            name: folder_name,
             media_type: "Folder".into(),
             size_bytes: 0,
-            is_folder: true,
         };
 
         let item = super::utils::view_link_to_dynamo_item(&view_link);
@@ -283,6 +282,7 @@ mod tests {
     use super::*;
     use crate::repository::mock::MockDynamoDbRepository;
     use crate::repository::DynamoDbRepositoryTrait;
+    use crate::service::models::ResourceId;
 
     #[tokio::test]
     async fn test_folder_exists_returns_true_when_folder_found() {
@@ -336,7 +336,7 @@ mod tests {
     async fn test_create_folder_success() {
         let expected_view_link = ViewLink {
             viewer_id: "user123".into(),
-            resource_id: "FOLDER#media/photos/".into(),
+            resource_id: ResourceId::Folder("media/photos/".to_string()),
             owner_id: "user123".into(),
             grant_id: "OWNER".into(),
             created_date: 1234567890,
@@ -344,7 +344,6 @@ mod tests {
             name: "photos".into(),
             media_type: "Folder".into(),
             size_bytes: 0,
-            is_folder: true,
         };
 
         let mock_repo = MockDynamoDbRepository::new()
@@ -354,12 +353,12 @@ mod tests {
 
         assert!(result.is_ok());
         let view_link = result.unwrap();
-        assert_eq!(view_link.viewer_id.as_ref(), "user123");
-        assert_eq!(view_link.resource_id.as_ref(), "FOLDER#media/photos/");
-        assert_eq!(view_link.folder_prefix.as_ref(), "media/");
-        assert_eq!(view_link.name.as_ref(), "photos");
-        assert_eq!(view_link.media_type.as_ref(), "Folder");
-        assert!(view_link.is_folder);
+        assert_eq!(view_link.viewer_id.as_str(), "user123");
+        assert_eq!(view_link.resource_id.as_str(), "media/photos/");
+        assert!(view_link.is_folder());
+        assert_eq!(view_link.folder_prefix.as_str(), "media/");
+        assert_eq!(view_link.name.as_str(), "photos");
+        assert_eq!(view_link.media_type.as_str(), "Folder");
 
         let calls = mock_repo.create_folder_calls();
         assert_eq!(calls.len(), 1);
@@ -371,7 +370,7 @@ mod tests {
     async fn test_create_folder_root_level() {
         let expected_view_link = ViewLink {
             viewer_id: "user123".into(),
-            resource_id: "FOLDER#media/".into(),
+            resource_id: ResourceId::Folder("media/".to_string()),
             owner_id: "user123".into(),
             grant_id: "OWNER".into(),
             created_date: 1234567890,
@@ -379,7 +378,6 @@ mod tests {
             name: "media".into(),
             media_type: "Folder".into(),
             size_bytes: 0,
-            is_folder: true,
         };
 
         let mock_repo = MockDynamoDbRepository::new()
@@ -389,8 +387,8 @@ mod tests {
 
         assert!(result.is_ok());
         let view_link = result.unwrap();
-        assert_eq!(view_link.folder_prefix.as_ref(), "");
-        assert_eq!(view_link.name.as_ref(), "media");
+        assert_eq!(view_link.folder_prefix.as_str(), "");
+        assert_eq!(view_link.name.as_str(), "media");
     }
 
     #[tokio::test]

@@ -4,7 +4,6 @@ use from_the_hart_storage::{
     logging,
     repository::{dynamodb::DynamoDbRepository, ssm::SsmRepository},
     service::access::CloudFrontSigner,
-    utils::time,
 };
 
 #[cfg(feature = "sqs")]
@@ -17,7 +16,6 @@ use tracing::{info, warn};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    time::init_start_time();
     logging::init_logging();
     config::init_config()?;
 
@@ -30,7 +28,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "sqs")]
     let metadata_service = Arc::new(MetadataService::new());
 
-    let state = from_the_hart_storage::state::AppState::new(
+    let cf_domain = config::config()
+        .cloudfront
+        .as_ref()
+        .map(|c| c.domain.clone());
+
+    let mut state = from_the_hart_storage::state::AppState::new(
         #[cfg(feature = "sqs")]
         Some(s3_repo),
         ddb_repo,
@@ -38,6 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(metadata_service),
         cloudfront_signer,
     );
+    state.cloudfront_domain = cf_domain;
 
     let app = routes::configure_routes(state).layer(TraceLayer::new_for_http());
 
