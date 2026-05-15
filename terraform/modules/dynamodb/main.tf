@@ -12,10 +12,14 @@ resource "aws_dynamodb_table" "table" {
     type = "S"
   }
 
-  key_schema = [
-    { attribute = "PK", key_type = "HASH" },
-    { attribute = "SK", key_type = "RANGE" },
-  ]
+  key_schema {
+    attribute_name = "PK"
+    key_type       = "HASH"
+  }
+  key_schema {
+    attribute_name = "SK"
+    key_type       = "RANGE"
+  }
 
 
   # attribute {
@@ -38,10 +42,14 @@ resource "aws_dynamodb_table" "table" {
 
   # global_secondary_index {
   #   name            = "grant-index"
-  #   key_schema = [
-  #     { attribute = "GSI1PK", key_type = "HASH" },
-  #     { attribute = "GSI1SK", key_type = "RANGE" },
-  #   ]
+  #   key_schema {
+  #     attribute_name = "GSI1PK"
+  #     key_type       = "HASH"
+  #   }
+  #   key_schema {
+  #     attribute_name = "GSI1SK"
+  #     key_type       = "RANGE"
+  #   }
   #   projection_type = "INCLUDE"
   #   non_key_attributes = [
   #     "grant_id",
@@ -58,10 +66,14 @@ resource "aws_dynamodb_table" "table" {
   global_secondary_index {
     name            = "view-link-index"
     projection_type = "INCLUDE"
-    key_schema = [
-      { attribute = "GSI2PK", key_type = "HASH" },
-      { attribute = "GSI2SK", key_type = "RANGE" },
-    ]
+    key_schema {
+      attribute_name = "GSI2PK"
+      key_type       = "HASH"
+    }
+    key_schema {
+      attribute_name = "GSI2SK"
+      key_type       = "RANGE"
+    }
     non_key_attributes = [
       "item_type",
       "resource_id",
