@@ -25,9 +25,9 @@ impl ImageMetadataExtractor {
 
         for (date_tag, offset_tag) in &date_offset_pairs {
             if let Some(date_str) = exif_tags.get(*date_tag) {
-                let offset = exif_tags.get(*offset_tag).map(|s| s.as_str());
+                let offset = exif_tags.get(*offset_tag).map(String::as_str);
 
-                if let Some(timestamp) = time::parse_media_datetime_with_offset(date_str, offset) {
+                if let Some(timestamp) = time::parse_media_datetime_with_offset(date_str, offset, None) {
                     return Some(timestamp);
                 }
             }
@@ -42,16 +42,16 @@ impl ImageMetadataExtractor {
         exif_tags: &HashMap<String, String>,
     ) -> Option<GpsCoordinates> {
         let lat_str = exif_tags.get("GPSLatitude")?;
-        let lat_ref = exif_tags.get("GPSLatitudeRef").map(|s| s.as_str());
+        let lat_ref = exif_tags.get("GPSLatitudeRef").map(String::as_str);
 
         let lon_str = exif_tags.get("GPSLongitude")?;
-        let lon_ref = exif_tags.get("GPSLongitudeRef").map(|s| s.as_str());
+        let lon_ref = exif_tags.get("GPSLongitudeRef").map(String::as_str);
 
         let latitude = gps::parse_coordinate_with_ref(lat_str, lat_ref)?;
         let longitude = gps::parse_coordinate_with_ref(lon_str, lon_ref)?;
 
         let altitude = exif_tags.get("GPSAltitude").and_then(|alt_str| {
-            let alt_ref = exif_tags.get("GPSAltitudeRef").map(|s| s.as_str());
+            let alt_ref = exif_tags.get("GPSAltitudeRef").map(String::as_str);
             gps::parse_altitude_with_ref(alt_str, alt_ref)
         });
 
@@ -118,7 +118,11 @@ impl MetadataExtractor for ImageMetadataExtractor {
         let (width, height) = match imagesize::blob_size(head_bytes) {
             Ok(size) => {
                 tracing::debug!("Image dimensions: {}x{}", size.width, size.height);
-                (Some(size.width as u32), Some(size.height as u32))
+                #[allow(clippy::cast_possible_truncation)]
+                {
+                    // Image dimensions exceeding u32::MAX are not realistic
+                    (Some(size.width as u32), Some(size.height as u32))
+                }
             }
             Err(e) => {
                 tracing::warn!(

@@ -215,6 +215,7 @@ mod tests {
             Arc::new(dynamodb_mock.clone()),
             Some(Arc::new(metadata_mock)),
             None,
+            None,
         );
 
         let result = handle_sqs_event(event, &state).await;

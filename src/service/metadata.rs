@@ -19,6 +19,7 @@ pub struct MetadataService {
 }
 
 impl MetadataService {
+    #[must_use] 
     pub fn new() -> Self {
         let extractors: Vec<Box<dyn MetadataExtractor>> =
             vec![Box::new(ImageMetadataExtractor::new())];

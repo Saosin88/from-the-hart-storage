@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 use crate::service::models::{File, ViewLink};
 
+#[must_use] 
 pub fn view_link_to_dynamo_item(view_link: &ViewLink) -> HashMap<String, AttributeValue> {
     let mut item = HashMap::new();
 
@@ -86,6 +87,7 @@ pub fn view_link_to_dynamo_item(view_link: &ViewLink) -> HashMap<String, Attribu
     item
 }
 
+#[must_use] 
 pub fn file_to_dynamo_item(file: &File) -> HashMap<String, AttributeValue> {
     let mut item = HashMap::new();
 
@@ -254,6 +256,7 @@ pub fn dynamo_item_to_view_link(
     })
 }
 
+#[must_use] 
 pub fn dynamo_key_to_json(key: &HashMap<String, AttributeValue>) -> serde_json::Value {
     let mut map = serde_json::Map::new();
     for (k, v) in key {

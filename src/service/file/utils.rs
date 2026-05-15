@@ -1,3 +1,4 @@
+#[must_use] 
 pub fn calculate_folder_prefix(file_path: &str) -> String {
     let segments: Vec<&str> = file_path.split('/').collect();
     if segments.len() > 1 {
@@ -7,6 +8,7 @@ pub fn calculate_folder_prefix(file_path: &str) -> String {
     }
 }
 
+#[must_use] 
 pub fn get_ancestor_folder_paths(file_path: &str) -> Vec<String> {
     let folder_prefix = calculate_folder_prefix(file_path);
 
@@ -29,6 +31,7 @@ pub fn get_ancestor_folder_paths(file_path: &str) -> Vec<String> {
     ancestors
 }
 
+#[must_use] 
 pub fn get_parent_folder_path(full_folder_path: &str) -> String {
     if full_folder_path.is_empty() {
         return "".to_string();
@@ -47,6 +50,7 @@ pub fn get_parent_folder_path(full_folder_path: &str) -> String {
     }
 }
 
+#[must_use] 
 pub fn get_folder_name(full_folder_path: &str) -> String {
     if full_folder_path.contains('/') {
         full_folder_path

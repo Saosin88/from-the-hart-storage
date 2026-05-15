@@ -9,6 +9,9 @@ pub fn current_timestamp_millis() -> Result<u128, String> {
         .map_err(|e| format!("Failed to get timestamp: {}", e))
 }
 
+#[must_use] 
+#[allow(clippy::cast_possible_truncation)]
+// Unix epoch millis won't overflow i64 for millions of years
 pub fn now_as_unix_millis() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -16,7 +19,8 @@ pub fn now_as_unix_millis() -> i64 {
         .as_millis() as i64
 }
 
-pub fn parse_media_datetime_with_offset(date_str: &str, offset: Option<&str>) -> Option<i64> {
+#[must_use] 
+pub fn parse_media_datetime_with_offset(date_str: &str, offset: Option<&str>, timezone: Option<Tz>) -> Option<i64> {
     if let Ok(dt) = DateTime::parse_from_rfc3339(date_str) {
         return Some(dt.timestamp_millis());
     }
@@ -29,7 +33,7 @@ pub fn parse_media_datetime_with_offset(date_str: &str, offset: Option<&str>) ->
         return Some(timestamp);
     }
 
-    let tz = get_timezone();
+    let tz = timezone.unwrap_or(chrono_tz::UTC);
 
     match tz.from_local_datetime(&naive_dt).single() {
         Some(local_dt) => {
@@ -62,18 +66,4 @@ fn parse_naive_datetime(date_str: &str) -> Option<NaiveDateTime> {
     None
 }
 
-fn get_timezone() -> Tz {
-    crate::config::config()
-        .timezone
-        .as_ref()
-        .and_then(|tz_str| {
-            tz_str.parse::<Tz>().ok().or_else(|| {
-                tracing::warn!(
-                    timezone = %tz_str,
-                    "Invalid timezone in APP_TIMEZONE, falling back to UTC"
-                );
-                None
-            })
-        })
-        .unwrap_or(chrono_tz::UTC)
-}
+

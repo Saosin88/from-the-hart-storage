@@ -33,15 +33,15 @@ async fn main() -> Result<(), Error> {
         .as_ref()
         .map(|c| c.domain.clone());
 
-    let mut state = from_the_hart_storage::state::AppState::new(
+    let state = from_the_hart_storage::state::AppState::new(
         #[cfg(feature = "sqs")]
         None,
         ddb_repo,
         #[cfg(feature = "sqs")]
         None,
         cloudfront_signer,
+        cf_domain,
     );
-    state.cloudfront_domain = cf_domain;
 
     let app = routes::configure_routes(state);
     let app = ServiceBuilder::new()

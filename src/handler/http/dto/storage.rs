@@ -69,6 +69,7 @@ pub struct FileData {
 pub type FileResponse = DataResponse<FileData>;
 
 impl FileResponse {
+    #[must_use] 
     pub fn from_file(model: crate::service::models::File, cloudfront_domain: &str) -> Self {
         let file_url = format!("https://{}/{}", cloudfront_domain, model.bucket_key);
 

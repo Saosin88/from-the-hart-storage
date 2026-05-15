@@ -30,6 +30,7 @@ impl AppState {
         dynamo_db_repository: Arc<dyn DynamoDbRepositoryTrait>,
         #[cfg(feature = "sqs")] metadata_service: Option<Arc<dyn MetadataServiceTrait>>,
         #[cfg(feature = "http")] cloudfront_signer: Option<Arc<CloudFrontSigner>>,
+        #[cfg(feature = "http")] cloudfront_domain: Option<String>,
     ) -> Self {
         Self {
             #[cfg(feature = "sqs")]
@@ -40,7 +41,7 @@ impl AppState {
             #[cfg(feature = "http")]
             cloudfront_signer,
             #[cfg(feature = "http")]
-            cloudfront_domain: None,
+            cloudfront_domain,
             start_time: std::time::Instant::now(),
         }
     }

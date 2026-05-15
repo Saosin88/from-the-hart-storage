@@ -57,14 +57,13 @@ mod tests {
 
     fn create_test_state() -> AppState {
         let metadata_mock = MockMetadataService::new();
-        let mut state = AppState::new(
+        AppState::new(
             None,
             Arc::new(MockDynamoDbRepository::new()),
             Some(Arc::new(metadata_mock)),
             None,
-        );
-        state.start_time = std::time::Instant::now();
-        state
+            None,
+        )
     }
 
     #[tokio::test]

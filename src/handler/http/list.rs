@@ -140,6 +140,7 @@ mod tests {
             Arc::new(dynamodb_mock.clone()),
             Some(Arc::new(metadata_mock)),
             None,
+            None,
         );
         (state, dynamodb_mock)
     }

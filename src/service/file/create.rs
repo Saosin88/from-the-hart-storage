@@ -101,7 +101,7 @@ async fn enrich_with_s3_metadata(
 
             if let Some(lm) = response.last_modified() {
                 if let Some(timestamp) =
-                    time::parse_media_datetime_with_offset(&lm.to_string(), None)
+                    time::parse_media_datetime_with_offset(&lm.to_string(), None, None)
                 {
                     file.created_date = timestamp;
                 } else {
@@ -129,6 +129,8 @@ async fn enrich_with_media_metadata(
     s3_repository: &(impl S3RepositoryTrait + ?Sized),
     metadata_service: &(impl MetadataServiceTrait + ?Sized),
 ) -> Result<(), StorageError> {
+    #[allow(clippy::cast_sign_loss)]
+    // size_bytes is always non-negative (file size from S3), cast is safe
     let num_bytes = std::cmp::min(512 * 1024, file.size_bytes as u64);
 
     let head_bytes = s3_repository

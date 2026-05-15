@@ -33,15 +33,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .as_ref()
         .map(|c| c.domain.clone());
 
-    let mut state = from_the_hart_storage::state::AppState::new(
+    let state = from_the_hart_storage::state::AppState::new(
         #[cfg(feature = "sqs")]
         Some(s3_repo),
         ddb_repo,
         #[cfg(feature = "sqs")]
         Some(metadata_service),
         cloudfront_signer,
+        cf_domain,
     );
-    state.cloudfront_domain = cf_domain;
 
     let app = routes::configure_routes(state).layer(TraceLayer::new_for_http());
 

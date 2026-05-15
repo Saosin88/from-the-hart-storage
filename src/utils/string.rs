@@ -3,13 +3,14 @@ use sha2::{Digest, Sha256};
 
 pub fn url_decode(s: &str) -> Result<String, StorageError> {
     urlencoding::decode(s)
-        .map(|cow| cow.into_owned())
+        .map(std::borrow::Cow::into_owned)
         .map_err(|e| StorageError::UrlDecode {
             context: format!("Failed to decode '{}'", s),
             source: e.into(),
         })
 }
 
+#[must_use] 
 pub fn clean_value(raw: &str) -> String {
     let mut v = raw.trim().to_string();
 
@@ -24,6 +25,7 @@ pub fn clean_value(raw: &str) -> String {
     v.trim().to_string()
 }
 
+#[must_use] 
 pub fn sha256_hash(input: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(input.as_bytes());

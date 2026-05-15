@@ -137,6 +137,7 @@ mod tests {
             Arc::new(mock_repo),
             Some(Arc::new(metadata_mock)),
             None,
+            None,
         )
     }
 

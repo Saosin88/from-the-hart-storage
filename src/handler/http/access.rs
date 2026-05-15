@@ -182,6 +182,7 @@ mod tests {
             Arc::new(dynamodb_mock),
             Some(Arc::new(metadata_mock)),
             None,
+            None,
         );
 
         let headers = HeaderMap::new();
@@ -200,6 +201,7 @@ mod tests {
             None,
             Arc::new(dynamodb_mock),
             Some(Arc::new(metadata_mock)),
+            None,
             None,
         );
 

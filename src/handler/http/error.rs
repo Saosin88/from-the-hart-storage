@@ -32,6 +32,7 @@ pub struct HttpError {
 }
 
 impl HttpError {
+    #[must_use] 
     pub fn new(status: StatusCode, code: String, message: String, details: Option<String>) -> Self {
         Self {
             status,

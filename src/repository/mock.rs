@@ -33,6 +33,7 @@ impl Default for MockS3Repository {
 }
 
 impl MockS3Repository {
+    #[must_use] 
     pub fn new() -> Self {
         Self::default()
     }
@@ -41,6 +42,7 @@ impl MockS3Repository {
         self.strict.store(strict, Ordering::SeqCst);
     }
 
+    #[must_use] 
     pub fn with_head_object_response(
         self,
         response: Result<HeadObjectOutput, StorageError>,
@@ -52,6 +54,7 @@ impl MockS3Repository {
         self
     }
 
+    #[must_use] 
     pub fn with_head_object_responses(
         self,
         responses: Vec<Result<HeadObjectOutput, StorageError>>,
@@ -66,6 +69,7 @@ impl MockS3Repository {
         self
     }
 
+    #[must_use] 
     pub fn with_fetch_head_bytes_response(self, response: Result<Vec<u8>, StorageError>) -> Self {
         self.fetch_head_bytes_responses
             .lock()
@@ -74,6 +78,7 @@ impl MockS3Repository {
         self
     }
 
+    #[must_use] 
     pub fn with_fetch_head_bytes_responses(
         self,
         responses: Vec<Result<Vec<u8>, StorageError>>,
@@ -175,6 +180,7 @@ impl Default for MockDynamoDbRepository {
 }
 
 impl MockDynamoDbRepository {
+    #[must_use] 
     pub fn new() -> Self {
         Self::default()
     }
@@ -183,11 +189,13 @@ impl MockDynamoDbRepository {
         self.strict.store(strict, Ordering::SeqCst);
     }
 
+    #[must_use] 
     pub fn with_put_file_response(self, response: Result<(), StorageError>) -> Self {
         self.put_file_responses.lock().unwrap().push_back(response);
         self
     }
 
+    #[must_use] 
     pub fn with_put_file_responses(self, responses: Vec<Result<(), StorageError>>) -> Self {
         {
             let mut lock = self.put_file_responses.lock().unwrap();
@@ -199,6 +207,7 @@ impl MockDynamoDbRepository {
         self
     }
 
+    #[must_use] 
     pub fn with_find_view_links_response(
         self,
         response: Result<(Vec<ViewLink>, Option<String>), StorageError>,
@@ -211,6 +220,7 @@ impl MockDynamoDbRepository {
     }
 
     #[allow(clippy::type_complexity)]
+    #[must_use] 
     pub fn with_find_view_links_responses(
         self,
         responses: Vec<Result<(Vec<ViewLink>, Option<String>), StorageError>>,
@@ -225,11 +235,13 @@ impl MockDynamoDbRepository {
         self
     }
 
+    #[must_use] 
     pub fn with_get_file_response(self, response: Result<Option<File>, StorageError>) -> Self {
         self.get_file_responses.lock().unwrap().push_back(response);
         self
     }
 
+    #[must_use] 
     pub fn with_get_file_responses(
         self,
         responses: Vec<Result<Option<File>, StorageError>>,
@@ -244,6 +256,7 @@ impl MockDynamoDbRepository {
         self
     }
 
+    #[must_use] 
     pub fn with_folder_exists_response(self, response: Result<bool, StorageError>) -> Self {
         self.folder_exists_responses
             .lock()
@@ -252,6 +265,7 @@ impl MockDynamoDbRepository {
         self
     }
 
+    #[must_use] 
     pub fn with_folder_exists_responses(self, responses: Vec<Result<bool, StorageError>>) -> Self {
         {
             let mut lock = self.folder_exists_responses.lock().unwrap();
@@ -263,6 +277,7 @@ impl MockDynamoDbRepository {
         self
     }
 
+    #[must_use] 
     pub fn with_create_folder_response(self, response: Result<ViewLink, StorageError>) -> Self {
         self.create_folder_responses
             .lock()
@@ -271,6 +286,7 @@ impl MockDynamoDbRepository {
         self
     }
 
+    #[must_use] 
     pub fn with_create_folder_responses(
         self,
         responses: Vec<Result<ViewLink, StorageError>>,
@@ -285,10 +301,12 @@ impl MockDynamoDbRepository {
         self
     }
 
+    #[must_use] 
     pub fn folder_exists_calls(&self) -> Vec<FolderExistsCall> {
         self.folder_exists_calls.lock().unwrap().clone()
     }
 
+    #[must_use] 
     pub fn create_folder_calls(&self) -> Vec<CreateFolderCall> {
         self.create_folder_calls.lock().unwrap().clone()
     }
@@ -405,6 +423,7 @@ impl DynamoDbRepositoryTrait for MockDynamoDbRepository {
 pub struct MockMetadataService;
 
 impl MockMetadataService {
+    #[must_use] 
     pub fn new() -> Self {
         Self
     }
@@ -439,6 +458,7 @@ impl Default for MockSsmRepository {
 }
 
 impl MockSsmRepository {
+    #[must_use] 
     pub fn new() -> Self {
         Self::default()
     }
@@ -447,6 +467,7 @@ impl MockSsmRepository {
         self.strict.store(strict, Ordering::SeqCst);
     }
 
+    #[must_use] 
     pub fn with_get_parameter_response(self, response: Result<String, StorageError>) -> Self {
         self.get_parameter_responses
             .lock()
@@ -455,6 +476,7 @@ impl MockSsmRepository {
         self
     }
 
+    #[must_use] 
     pub fn with_get_parameter_responses(
         self,
         responses: Vec<Result<String, StorageError>>,
@@ -469,6 +491,7 @@ impl MockSsmRepository {
         self
     }
 
+    #[must_use] 
     pub fn get_parameter_calls(&self) -> Vec<(String, bool)> {
         self.get_parameter_calls.lock().unwrap().clone()
     }

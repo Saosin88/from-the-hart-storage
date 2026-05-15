@@ -88,6 +88,7 @@ mod tests {
             Arc::new(dynamodb_mock),
             Some(Arc::new(metadata_mock)),
             None,
+            None,
         )
     }
 

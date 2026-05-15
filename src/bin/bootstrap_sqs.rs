@@ -33,6 +33,8 @@ async fn main() -> Result<(), Error> {
         Some(metadata_service),
         #[cfg(feature = "http")]
         None,
+        #[cfg(feature = "http")]
+        None,
     );
 
     run(service_fn(move |event: LambdaEvent<SqsEvent>| {

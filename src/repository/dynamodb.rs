@@ -247,7 +247,7 @@ impl crate::repository::DynamoDbRepositoryTrait for DynamoDbRepository {
             size_bytes: 0,
         };
 
-        let item = super::utils::view_link_to_dynamo_item(&view_link);
+        let item = view_link_to_dynamo_item(&view_link);
 
         self.client
             .put_item()

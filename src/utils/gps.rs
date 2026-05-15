@@ -1,3 +1,4 @@
+#[must_use] 
 pub fn parse_coordinate_with_ref(coord_str: &str, reference: Option<&str>) -> Option<f64> {
     let mut value = parse_coordinate(coord_str)?;
 
@@ -10,6 +11,7 @@ pub fn parse_coordinate_with_ref(coord_str: &str, reference: Option<&str>) -> Op
     Some(value)
 }
 
+#[must_use] 
 pub fn parse_altitude_with_ref(altitude_str: &str, reference: Option<&str>) -> Option<f64> {
     let mut altitude = parse_decimal_value(altitude_str)?;
 
@@ -23,6 +25,7 @@ pub fn parse_altitude_with_ref(altitude_str: &str, reference: Option<&str>) -> O
     Some(altitude)
 }
 
+#[must_use] 
 pub fn parse_coordinate(coord_str: &str) -> Option<f64> {
     let trimmed = coord_str.trim();
 
@@ -118,6 +121,8 @@ fn parse_packed_ddm(s: &str) -> Option<f64> {
         return None;
     }
 
+    #[allow(clippy::cast_possible_truncation)]
+    // GPS degrees are in range (-180, 180), fits comfortably in i32
     let int_part = value.floor() as i32;
 
     let deg = int_part / 100;
@@ -136,10 +141,12 @@ fn parse_packed_ddm(s: &str) -> Option<f64> {
     Some(ddm_to_dd(degrees, minutes))
 }
 
+#[must_use] 
 pub fn dms_to_dd(degrees: f64, minutes: f64, seconds: f64) -> f64 {
     degrees + (minutes / 60.0) + (seconds / 3600.0)
 }
 
+#[must_use] 
 pub fn ddm_to_dd(degrees: f64, decimal_minutes: f64) -> f64 {
     degrees + (decimal_minutes / 60.0)
 }
