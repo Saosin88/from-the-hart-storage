@@ -1,8 +1,6 @@
 resource "aws_dynamodb_table" "table" {
   name         = var.name
   billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "PK"
-  range_key    = "SK"
 
   attribute {
     name = "PK"
@@ -13,6 +11,11 @@ resource "aws_dynamodb_table" "table" {
     name = "SK"
     type = "S"
   }
+
+  key_schema = [
+    { attribute = "PK", key_type = "HASH" },
+    { attribute = "SK", key_type = "RANGE" },
+  ]
 
 
   # attribute {
@@ -35,8 +38,10 @@ resource "aws_dynamodb_table" "table" {
 
   # global_secondary_index {
   #   name            = "grant-index"
-  #   hash_key        = "GSI1PK"
-  #   range_key       = "GSI1SK"
+  #   key_schema = [
+  #     { attribute = "GSI1PK", key_type = "HASH" },
+  #     { attribute = "GSI1SK", key_type = "RANGE" },
+  #   ]
   #   projection_type = "INCLUDE"
   #   non_key_attributes = [
   #     "grant_id",
@@ -52,9 +57,11 @@ resource "aws_dynamodb_table" "table" {
 
   global_secondary_index {
     name            = "view-link-index"
-    hash_key        = "GSI2PK"
-    range_key       = "GSI2SK"
     projection_type = "INCLUDE"
+    key_schema = [
+      { attribute = "GSI2PK", key_type = "HASH" },
+      { attribute = "GSI2SK", key_type = "RANGE" },
+    ]
     non_key_attributes = [
       "item_type",
       "resource_id",
