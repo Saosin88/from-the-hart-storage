@@ -12,14 +12,8 @@ resource "aws_dynamodb_table" "table" {
     type = "S"
   }
 
-  key_schema {
-    attribute_name = "PK"
-    key_type       = "HASH"
-  }
-  key_schema {
-    attribute_name = "SK"
-    key_type       = "RANGE"
-  }
+  hash_key     = "PK"
+  range_key    = "SK"
 
 
   # attribute {
