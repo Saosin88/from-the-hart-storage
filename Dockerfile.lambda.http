@@ -12,17 +12,17 @@ COPY Cargo.toml Cargo.lock ./
 RUN mkdir -p src/bin && \
     echo "fn main() {}" > src/bin/bootstrap_http.rs && \
     echo "// lib" > src/lib.rs
-RUN cargo build --release --bin bootstrap_http --features http --no-default-features
+RUN cargo build --profile release-dev --bin bootstrap_http --features http --no-default-features
 
 COPY src ./src
 RUN touch src/bin/bootstrap_http.rs src/lib.rs
-RUN cargo build --release --bin bootstrap_http --features http --no-default-features
+RUN cargo build --profile release-dev --bin bootstrap_http --features http --no-default-features
 
 FROM public.ecr.aws/lambda/provided:al2023
 
 WORKDIR /var/task
 
-COPY --from=builder /app/target/release/bootstrap_http ./bootstrap
+COPY --from=builder /app/target/release-dev/bootstrap_http ./bootstrap
 
 RUN chmod +x ./bootstrap
 

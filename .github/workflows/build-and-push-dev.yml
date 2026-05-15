@@ -8,9 +8,20 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-push-to-ecr-deploy-with-terraform:
+  build:
+    name: Build ${{ matrix.target.name }}
     runs-on: ubuntu-latest
     environment: dev
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - name: http
+            dockerfile: Dockerfile.lambda.http
+            cache_scope: http
+          - name: sqs
+            dockerfile: Dockerfile.lambda.sqs
+            cache_scope: sqs
 
     permissions:
       id-token: write
@@ -32,29 +43,36 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push HTTP image to Amazon ECR
+      - name: Build and push ${{ matrix.target.name }} image to Amazon ECR
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: Dockerfile.lambda.http
+          file: ${{ matrix.target.dockerfile }}
           push: true
           tags: |
-            ${{ secrets.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY }}:http-dev-${{ github.run_number }}
-          cache-from: type=gha,scope=${{ github.ref }}-http
-          cache-to: type=gha,scope=${{ github.ref }}-http,mode=max
+            ${{ secrets.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY }}:${{ matrix.target.name }}-dev-${{ github.run_number }}
+          cache-from: type=gha,scope=${{ github.ref }}-${{ matrix.target.cache_scope }}
+          cache-to: type=gha,scope=${{ github.ref }}-${{ matrix.target.cache_scope }},mode=max
           provenance: false
 
-      - name: Build and push SQS image to Amazon ECR
-        uses: docker/build-push-action@v5
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: dev
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          context: .
-          file: Dockerfile.lambda.sqs
-          push: true
-          tags: |
-            ${{ secrets.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY }}:sqs-dev-${{ github.run_number }}
-          cache-from: type=gha,scope=${{ github.ref }}-sqs
-          cache-to: type=gha,scope=${{ github.ref }}-sqs,mode=max
-          provenance: false
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
