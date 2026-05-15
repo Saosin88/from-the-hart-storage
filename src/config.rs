@@ -1,7 +1,18 @@
-use config::ConfigError;
 use serde::Deserialize;
 use std::env;
+use std::fmt;
 use std::sync::OnceLock;
+
+#[derive(Debug)]
+pub struct ConfigLoadError(pub String);
+
+impl fmt::Display for ConfigLoadError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl std::error::Error for ConfigLoadError {}
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct ServerConfig {
@@ -39,18 +50,18 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
-    pub fn load() -> Result<Self, ConfigError> {
+    pub fn load() -> Result<Self, ConfigLoadError> {
         dotenvy::dotenv().ok();
 
         let environment = env::var("APP_ENVIRONMENT")
-            .map_err(|_| ConfigError::Message("APP_ENVIRONMENT is required".to_string()))?;
+            .map_err(|_| ConfigLoadError("APP_ENVIRONMENT is required".to_string()))?;
 
         let server = if let (Ok(host), Ok(port_str)) =
             (env::var("APP_SERVER_HOST"), env::var("APP_SERVER_PORT"))
         {
             let port = port_str
                 .parse::<u16>()
-                .map_err(|e| ConfigError::Message(format!("Invalid APP_SERVER_PORT: {}", e)))?;
+                .map_err(|e| ConfigLoadError(format!("Invalid APP_SERVER_PORT: {}", e)))?;
             Some(ServerConfig { host, port })
         } else {
             None
@@ -91,7 +102,7 @@ impl AppConfig {
 static CONFIG: OnceLock<AppConfig> = OnceLock::new();
 
 /// Initialize config - must be called after logging is set up
-pub fn init_config() -> Result<(), ConfigError> {
+pub fn init_config() -> Result<(), ConfigLoadError> {
     let cfg = AppConfig::load()?;
 
     // Safe to use tracing here since caller ensures logging is initialized
@@ -99,7 +110,7 @@ pub fn init_config() -> Result<(), ConfigError> {
 
     CONFIG
         .set(cfg)
-        .map_err(|_| ConfigError::Message("Config already initialized".to_string()))?;
+        .map_err(|_| ConfigLoadError("Config already initialized".to_string()))?;
 
     Ok(())
 }

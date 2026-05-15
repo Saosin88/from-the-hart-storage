@@ -1,7 +1,7 @@
 [package]
 name = "from-the-hart-storage"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [features]
 default = ["http", "sqs"]
@@ -26,7 +26,6 @@ kamadak-exif = { version = "0.6", optional = true }
 # Core dependencies (always included)
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-config = "0.15"
 dotenvy = "0.15"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "signal", "net"] }
 tracing = "0.1"

@@ -3,8 +3,6 @@ use aws_sdk_dynamodb::{
     Client,
 };
 use base64::Engine;
-use std::sync::Arc;
-use tokio::sync::OnceCell;
 
 use crate::{
     config::config,
@@ -12,19 +10,9 @@ use crate::{
     service::models::{File, ViewLink},
 };
 
+use std::sync::Arc;
+
 use super::utils::{file_to_dynamo_item, view_link_to_dynamo_item};
-
-static DDB_CLIENT: OnceCell<Arc<Client>> = OnceCell::const_new();
-
-async fn get_dynamodb_client() -> Arc<Client> {
-    DDB_CLIENT
-        .get_or_init(|| async {
-            let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
-            Arc::new(Client::new(&config))
-        })
-        .await
-        .clone()
-}
 
 pub struct DynamoDbRepository {
     client: Arc<Client>,
@@ -37,8 +25,9 @@ impl DynamoDbRepository {
             .dynamodb
             .as_ref()
             .expect("DynamoDB configuration is required");
+        let aws_config = super::aws_config::get_aws_config().await;
         Self {
-            client: get_dynamodb_client().await,
+            client: Arc::new(Client::new(aws_config)),
             table_name: dynamo_db_config.table.clone(),
         }
     }
@@ -122,32 +111,30 @@ impl crate::repository::DynamoDbRepositoryTrait for DynamoDbRepository {
             .scan_index_forward(false)
             .limit(limit);
 
-        if let Some(cursor_str) = cursor {
-            if !cursor_str.is_empty() {
-                let decoded_bytes = base64::prelude::BASE64_STANDARD
-                    .decode(cursor_str)
+        if let Some(cursor_str) = cursor && !cursor_str.is_empty() {
+            let decoded_bytes = base64::prelude::BASE64_STANDARD
+                .decode(cursor_str)
                     .map_err(|e| StorageError::InvalidRequest {
                         context: "Invalid cursor format".to_string(),
                         source: e.into(),
                     })?;
 
-                let json: serde_json::Value =
-                    serde_json::from_slice(&decoded_bytes).map_err(|e| {
-                        StorageError::InvalidRequest {
-                            context: "Invalid cursor JSON".to_string(),
-                            source: e.into(),
-                        }
-                    })?;
-
-                let last_evaluated_key = super::utils::json_to_dynamo_key(&json).map_err(|e| {
+            let json: serde_json::Value =
+                serde_json::from_slice(&decoded_bytes).map_err(|e| {
                     StorageError::InvalidRequest {
-                        context: "Invalid cursor data".to_string(),
-                        source: e,
+                        context: "Invalid cursor JSON".to_string(),
+                        source: e.into(),
                     }
                 })?;
 
-                query = query.set_exclusive_start_key(Some(last_evaluated_key));
-            }
+            let last_evaluated_key = super::utils::json_to_dynamo_key(&json).map_err(|e| {
+                StorageError::InvalidRequest {
+                    context: "Invalid cursor data".to_string(),
+                    source: e,
+                }
+            })?;
+
+            query = query.set_exclusive_start_key(Some(last_evaluated_key));
         }
 
         let output = query.send().await.map_err(|e| StorageError::DynamoDb {

@@ -23,10 +23,10 @@ pub fn parse_media_datetime_with_offset(date_str: &str, offset: Option<&str>) ->
 
     let naive_dt = parse_naive_datetime(date_str)?;
 
-    if let Some(offset_str) = offset {
-        if let Some(timestamp) = parse_datetime_with_offset(date_str, offset_str) {
-            return Some(timestamp);
-        }
+    if let Some(offset_str) = offset
+        && let Some(timestamp) = parse_datetime_with_offset(date_str, offset_str)
+    {
+        return Some(timestamp);
     }
 
     let tz = get_timezone();

@@ -1,10 +1,10 @@
 pub fn parse_coordinate_with_ref(coord_str: &str, reference: Option<&str>) -> Option<f64> {
     let mut value = parse_coordinate(coord_str)?;
 
-    if let Some(ref_str) = reference {
-        if ref_str.to_uppercase().starts_with('S') || ref_str.to_uppercase().starts_with('W') {
-            value = -value;
-        }
+    if let Some(ref_str) = reference
+        && (ref_str.to_uppercase().starts_with('S') || ref_str.to_uppercase().starts_with('W'))
+    {
+        value = -value;
     }
 
     Some(value)

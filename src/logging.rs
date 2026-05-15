@@ -1,10 +1,8 @@
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 pub fn init_logging() {
-    let rust_log = std::env::var("RUST_LOG").unwrap_or_else(|_| {
-        std::env::set_var("RUST_LOG", "info");
-        "info".to_string()
-    });
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info"));
 
     tracing_subscriber::registry()
         .with(
@@ -19,13 +17,9 @@ pub fn init_logging() {
                 .with_thread_ids(true)
                 .with_thread_names(true),
         )
-        .with(EnvFilter::from_default_env())
+        .with(filter)
         .with(tracing_error::ErrorLayer::default())
         .init();
-
-    if rust_log == "info" && std::env::var("RUST_LOG").is_err() {
-        tracing::warn!("RUST_LOG environment variable not set, defaulting to 'info'");
-    }
 
     std::panic::set_hook(Box::new(|panic_info| {
         let payload = panic_info

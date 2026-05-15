@@ -146,10 +146,10 @@ pub fn file_to_dynamo_item(file: &File) -> HashMap<String, AttributeValue> {
         AttributeValue::S(file.bucket.to_string()),
     );
 
-    if let Some(metadata) = &file.media_metadata {
-        if let Ok(meta_json) = serde_json::to_string(metadata) {
-            item.insert("MediaMetadata".to_string(), AttributeValue::S(meta_json));
-        }
+    if let Some(metadata) = &file.media_metadata
+        && let Ok(meta_json) = serde_json::to_string(metadata)
+    {
+        item.insert("MediaMetadata".to_string(), AttributeValue::S(meta_json));
     }
 
     item

@@ -2,19 +2,6 @@ use crate::error::StorageError;
 
 use aws_sdk_s3::{operation::head_object::HeadObjectOutput, Client};
 use std::sync::Arc;
-use tokio::sync::OnceCell;
-
-static S3_CLIENT: OnceCell<Arc<Client>> = OnceCell::const_new();
-
-async fn get_s3_client() -> Arc<Client> {
-    S3_CLIENT
-        .get_or_init(|| async {
-            let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
-            Arc::new(Client::new(&config))
-        })
-        .await
-        .clone()
-}
 
 pub struct S3Repository {
     client: Arc<Client>,
@@ -22,8 +9,9 @@ pub struct S3Repository {
 
 impl S3Repository {
     pub async fn new() -> Self {
+        let aws_config = super::aws_config::get_aws_config().await;
         Self {
-            client: get_s3_client().await,
+            client: Arc::new(Client::new(aws_config)),
         }
     }
 }

@@ -1,7 +1,7 @@
 use crate::{
     handler::http::{
+        access, folder, health, list,
         openapi::create_api_docs,
-        storage::{access, folder, health, list},
     },
     state::AppState,
 };
