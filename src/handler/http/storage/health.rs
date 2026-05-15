@@ -70,7 +70,7 @@ mod tests {
     #[tokio::test]
     async fn test_health_endpoint_returns_ok_when_service_initialized() {
         let app = routes::configure_routes(create_test_state());
-        let server = TestServer::new(app).unwrap();
+        let server = TestServer::new(app);
         let response = server.get("/storage/health").await;
         assert_eq!(response.status_code(), StatusCode::OK);
         let body: HealthResponse = response.json();
@@ -81,7 +81,7 @@ mod tests {
     #[tokio::test]
     async fn test_health_endpoint_response_structure() {
         let app = routes::configure_routes(create_test_state());
-        let server = TestServer::new(app).unwrap();
+        let server = TestServer::new(app);
         let response = server.get("/storage/health").await;
         assert_eq!(response.status_code(), StatusCode::OK);
         let body: serde_json::Value = response.json();

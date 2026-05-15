@@ -8,6 +8,10 @@ use crate::{
     utils::jwt::extract_user_id_from_jwt,
 };
 use aide::{axum::IntoApiResponse, transform::TransformOperation};
+use aide::openapi::{
+    HeaderStyle, Parameter, ParameterData, ParameterSchemaOrContent, ReferenceOr, SchemaObject,
+};
+use serde_json::json;
 use axum::{
     extract::State,
     http::{header, HeaderMap, StatusCode},
@@ -107,8 +111,8 @@ pub async fn get_signed_access(
     response
 }
 
-pub fn get_signed_access_docs(op: TransformOperation) -> TransformOperation {
-    op.description(
+pub fn get_signed_access_docs(mut op: TransformOperation) -> TransformOperation {
+    op = op.description(
         "Generate CloudFront signed access for user files.\n\n\
         This endpoint generates CloudFront signed URLs and sets signed cookies that grant access to all files \
         in the authenticated user's directory. The signature is valid for 1 hour.\n\n\
@@ -129,7 +133,37 @@ pub fn get_signed_access_docs(op: TransformOperation) -> TransformOperation {
     .tag("Storage")
     .response::<200, Json<SignedAccessResponse>>()
     .response::<401, Json<crate::handler::http::error::HttpErrorResponse>>()
-    .response::<500, Json<crate::handler::http::error::HttpErrorResponse>>()
+    .response::<500, Json<crate::handler::http::error::HttpErrorResponse>>();
+
+    // Add the auth header parameter manually (not auto-detected since handler uses HeaderMap)
+    {
+        let operation = op.inner_mut();
+        operation.parameters.push(ReferenceOr::Item(Parameter::Header {
+            parameter_data: ParameterData {
+                name: "X-From-The-Hart-Authorization".to_string(),
+                description: Some(
+                    "JWT Bearer token. Validated by the API Gateway before reaching this service."
+                        .to_string(),
+                ),
+                required: true,
+                deprecated: None,
+                format: ParameterSchemaOrContent::Schema(SchemaObject {
+                    json_schema: json!({"type": "string", "pattern": "^Bearer .+$"})
+                        .try_into()
+                        .unwrap(),
+                    external_docs: None,
+                    example: Some(json!("Bearer eyJhbGciOiJIUzI1NiIs...")),
+                }),
+                example: None,
+                examples: Default::default(),
+                explode: None,
+                extensions: Default::default(),
+            },
+            style: HeaderStyle::Simple,
+        }));
+    }
+
+    op
 }
 
 #[cfg(test)]

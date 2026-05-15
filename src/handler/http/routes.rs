@@ -94,7 +94,7 @@ mod tests {
     #[tokio::test]
     async fn test_openapi_json_endpoint_exists() {
         let app = configure_routes(create_test_state());
-        let server = TestServer::new(app).unwrap();
+        let server = TestServer::new(app);
         let response = server.get("/storage/documentation/openapi.json").await;
         assert_eq!(response.status_code(), StatusCode::OK);
     }
@@ -102,7 +102,7 @@ mod tests {
     #[tokio::test]
     async fn test_openapi_json_contains_wildcard_file_routes() {
         let app = configure_routes(create_test_state());
-        let server = TestServer::new(app).unwrap();
+        let server = TestServer::new(app);
         let response = server.get("/storage/documentation/openapi.json").await;
         assert_eq!(response.status_code(), StatusCode::OK);
 
@@ -131,7 +131,7 @@ mod tests {
     #[tokio::test]
     async fn test_openapi_json_wildcard_route_has_query_params() {
         let app = configure_routes(create_test_state());
-        let server = TestServer::new(app).unwrap();
+        let server = TestServer::new(app);
         let response = server.get("/storage/documentation/openapi.json").await;
         assert_eq!(response.status_code(), StatusCode::OK);
 
@@ -172,7 +172,7 @@ mod tests {
     #[tokio::test]
     async fn test_openapi_json_has_required_endpoints() {
         let app = configure_routes(create_test_state());
-        let server = TestServer::new(app).unwrap();
+        let server = TestServer::new(app);
         let response = server.get("/storage/documentation/openapi.json").await;
         assert_eq!(response.status_code(), StatusCode::OK);
 

@@ -2,7 +2,7 @@ FROM amazonlinux:2023 AS builder
 
 RUN dnf update -y && \
     dnf install -y gcc openssl-devel tar gzip && \
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.95.0 && \
     dnf clean all
 ENV PATH="/root/.cargo/bin:${PATH}"
 

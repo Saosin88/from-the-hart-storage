@@ -27,5 +27,7 @@ pub fn clean_value(raw: &str) -> String {
 pub fn sha256_hash(input: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(input.as_bytes());
-    format!("{:x}", hasher.finalize())
+    let result = hasher.finalize();
+    let bytes: &[u8] = result.as_ref();
+    bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }

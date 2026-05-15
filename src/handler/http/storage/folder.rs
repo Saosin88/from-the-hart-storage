@@ -9,6 +9,10 @@ use crate::{
     utils::jwt::extract_user_id_from_jwt,
 };
 use aide::{axum::IntoApiResponse, transform::TransformOperation};
+use aide::openapi::{
+    HeaderStyle, Parameter, ParameterData, ParameterSchemaOrContent, ReferenceOr, SchemaObject,
+};
+use serde_json::json;
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
@@ -60,8 +64,8 @@ pub async fn create_folder(
         .into_response()
 }
 
-pub fn create_folder_docs(op: TransformOperation) -> TransformOperation {
-    op.description(
+pub fn create_folder_docs(mut op: TransformOperation) -> TransformOperation {
+    op = op.description(
         "Create a new folder in the user's storage.\n\n\
         This endpoint creates a new folder at the specified path. The folder path must:\n\
         - End with a trailing slash (e.g., 'media/')\n\
@@ -84,7 +88,37 @@ pub fn create_folder_docs(op: TransformOperation) -> TransformOperation {
     .response::<400, Json<crate::handler::http::error::HttpErrorResponse>>()
     .response::<401, Json<crate::handler::http::error::HttpErrorResponse>>()
     .response::<404, Json<crate::handler::http::error::HttpErrorResponse>>()
-    .response::<500, Json<crate::handler::http::error::HttpErrorResponse>>()
+    .response::<500, Json<crate::handler::http::error::HttpErrorResponse>>();
+
+    // Add the auth header parameter manually (not auto-detected since handler uses HeaderMap)
+    {
+        let operation = op.inner_mut();
+        operation.parameters.push(ReferenceOr::Item(Parameter::Header {
+            parameter_data: ParameterData {
+                name: "X-From-The-Hart-Authorization".to_string(),
+                description: Some(
+                    "JWT Bearer token. Validated by the API Gateway before reaching this service."
+                        .to_string(),
+                ),
+                required: true,
+                deprecated: None,
+                format: ParameterSchemaOrContent::Schema(SchemaObject {
+                    json_schema: json!({"type": "string", "pattern": "^Bearer .+$"})
+                        .try_into()
+                        .unwrap(),
+                    external_docs: None,
+                    example: Some(json!("Bearer eyJhbGciOiJIUzI1NiIs...")),
+                }),
+                example: None,
+                examples: Default::default(),
+                explode: None,
+                extensions: Default::default(),
+            },
+            style: HeaderStyle::Simple,
+        }));
+    }
+
+    op
 }
 
 #[cfg(test)]
