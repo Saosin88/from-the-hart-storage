@@ -255,7 +255,7 @@ fn register_storage_schemas(components: &mut aide::openapi::Components) {
                 "properties": {
                     "items": {
                         "type": "array",
-                        "items": {"$ref": "#/components/schemas/ViewLink"},
+                        "items": {"$ref": "#/components/schemas/ViewLinkData"},
                         "description": "List of files and folders"
                     },
                     "next_cursor": {
@@ -273,9 +273,9 @@ fn register_storage_schemas(components: &mut aide::openapi::Components) {
         },
     );
 
-    // ViewLink
+    // ViewLinkData
     components.schemas.insert(
-        "ViewLink".to_string(),
+        "ViewLinkData".to_string(),
         SchemaObject {
             json_schema: json!({
                 "type": "object",

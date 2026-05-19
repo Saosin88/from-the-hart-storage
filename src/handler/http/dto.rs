@@ -8,5 +8,5 @@ pub use common::DataResponse;
 pub use health::{HealthData, HealthResponse};
 pub use storage::{
     CreateFolderRequest, CreateFolderResponse, FileData, FileResponse, FolderData, StorageListData,
-    StorageListResponse, ViewLink,
+    StorageListResponse, ViewLinkData,
 };

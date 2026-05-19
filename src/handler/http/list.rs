@@ -1,6 +1,6 @@
 use crate::{
     handler::http::{
-        dto::{StorageListData, StorageListResponse, ViewLink},
+        dto::{StorageListData, StorageListResponse, ViewLinkData},
         error::HttpError,
     },
     service::file::list,
@@ -58,7 +58,7 @@ pub async fn handle_file_request(
             Ok((items, next_cursor)) => {
                 let response = StorageListResponse {
                     data: StorageListData {
-                        items: items.into_iter().map(ViewLink::from).collect(),
+                        items: items.into_iter().map(ViewLinkData::from).collect(),
                         next_cursor,
                     },
                 };

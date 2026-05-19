@@ -1,13 +1,11 @@
 pub mod file;
 pub mod health;
 pub mod metadata;
-pub mod share_grant;
 pub mod view_link;
 
 pub use file::{File, MediaType};
 pub use health::HealthStatus;
 pub use metadata::{GpsCoordinates, ImageMetadata, MediaMetadata};
-pub use share_grant::ShareGrant;
 pub use view_link::{ResourceId, ViewLink};
 
 #[cfg(test)]

@@ -5,7 +5,7 @@ use super::common::DataResponse;
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[schemars(description = "A link to a file or folder")]
-pub struct ViewLink {
+pub struct ViewLinkData {
     pub viewer_id: String,
     pub resource_id: String,
     pub owner_id: String,
@@ -18,7 +18,7 @@ pub struct ViewLink {
     pub is_folder: bool,
 }
 
-impl From<crate::service::models::ViewLink> for ViewLink {
+impl From<crate::service::models::ViewLink> for ViewLinkData {
     fn from(model: crate::service::models::ViewLink) -> Self {
         let (resource_id, is_folder) = match model.resource_id {
             crate::service::models::ResourceId::File(id) => (id, false),
@@ -43,7 +43,7 @@ impl From<crate::service::models::ViewLink> for ViewLink {
 #[schemars(description = "List of files and folders")]
 pub struct StorageListData {
     #[schemars(description = "List of files and folders")]
-    pub items: Vec<ViewLink>,
+    pub items: Vec<ViewLinkData>,
     #[schemars(description = "Cursor for pagination")]
     pub next_cursor: Option<String>,
 }
@@ -161,7 +161,7 @@ mod tests {
             size_bytes: 1048576,
         };
 
-        let dto: ViewLink = ViewLink::from(domain);
+        let dto: ViewLinkData = ViewLinkData::from(domain);
 
         assert_eq!(dto.viewer_id, "viewer1");
         assert_eq!(dto.resource_id, "file-abc-123");
@@ -189,7 +189,7 @@ mod tests {
             size_bytes: 0,
         };
 
-        let dto: ViewLink = ViewLink::from(domain);
+        let dto: ViewLinkData = ViewLinkData::from(domain);
 
         assert_eq!(dto.viewer_id, "viewer1");
         assert_eq!(dto.resource_id, "FOLDER#media/photos/");

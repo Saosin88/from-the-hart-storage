@@ -78,8 +78,5 @@ Content-derived metadata extracted from a **File** during **Metadata Extraction*
 
 ## Flagged Ambiguities
 
-- **owner_id / viewer_id uses Principal ID, not Identity ID:** These fields currently store Firebase UIDs. Should become **Identity** IDs when the Identity service is built. → See [TODO.md](../TODO.md#27-storage--migrate-owner_idviewer_id-from-firebase-uids-to-identity-ids).
-- **"FOLDER#" prefix encoding:** The folder prefix in resource IDs is an implementation detail leaked to the wire format. Should be abstracted away. → See [TODO.md](../TODO.md#9-storage--folder-wire-prefix-cleanup).
-- **DTO ViewLink name collision:** The DTO and domain model share the name `ViewLink` with different shapes. Should follow `{Name}Data` pattern. → See [TODO.md](../TODO.md#8-storage-dto--viewlink-name-collision).
-- **`X-From-The-Hart-Authorization` custom header:** Custom header name used instead of standard `Authorization`. → See [TODO.md](../TODO.md#28-storage--replace-x-from-the-hart-authorization-custom-header-with-standard-authorization).
-- **ShareGrant model exists but is unused:** Scaffolding defined in `src/service/models/share_grant.rs` with no consumers. → See [TODO.md](../TODO.md#29-storage--implement-or-remove-unused-sharegrant-model).
+- **owner_id / viewer_id uses Principal ID, not Identity ID:** These fields currently store Firebase UIDs. Should become **Identity** IDs when the Identity service is built. → See [TODO.md](../TODO.md#15-storage--migrate-owner_idviewer_id-from-firebase-uids-to-identity-ids).
+- **"FOLDER#" prefix encoding:** The folder prefix in resource IDs is an implementation detail leaked to the wire format. Should be abstracted away. → See [TODO.md](../TODO.md#8-storage--folder-wire-prefix-cleanup).
