@@ -1,128 +1,74 @@
 # From The Hart Storage
 
-> Rust microservice for file storage, metadata extraction, and S3/DynamoDB operations. WIP. See [master AGENTS.md](../AGENTS.md) for principles.
+> **Hierarchy:** Service-specific rules for storage. Extends [master AGENTS.md](../AGENTS.md).
+> Rules here take precedence over both master and personal AGENTS.md.
+> **Stack:** Rust + Axum + AWS Lambda. When reading the master AGENTS.md, TS/Vue sections apply to other services.
+>
+> Rust microservice for file storage, metadata extraction, and S3/DynamoDB operations.
+> Domain glossary: [CONTEXT.md](./CONTEXT.md).
 
-## Responsibilities
-
-- HTTP API: file/folder listing, CloudFront signed URL generation
-- SQS Worker: S3 upload event → EXIF/image metadata extraction → DynamoDB indexing
-- OpenAPI/Swagger documentation (Aide)
-
-## Tech Stack
-
-- **Language:** Rust 2021 edition
-- **HTTP:** Axum + Tower (`TraceLayer`)
-- **AWS SDK:** `aws-sdk-s3`, `aws-sdk-dynamodb`, `aws-sdk-ssm`
-- **Lambda:** `lambda_http` (HTTP), `lambda_runtime` + `aws_lambda_events` (SQS)
-- **Image:** `imagesize`, `kamadak-exif` (SQS feature)
-- **API Docs:** Aide with OpenAPI + Swagger UI
-- **Logging:** `tracing` + `tracing-subscriber` (JSON, file+line, thread IDs)
-- **Error:** `thiserror` (domain errors), `anyhow` (internal)
-- **Config:** `config` crate + `dotenvy`
-
-## Common Commands
+## Commands
 
 ```bash
-cargo build                          # Debug
-cargo build --release                # Release (opt-level=z, lto, strip, panic=abort)
-cargo build --features http          # HTTP only
-cargo build --features sqs           # SQS only
-
-RUST_LOG=info APP_ENVIRONMENT=local cargo run   # Local
-
-cargo test                           # All tests
-cargo fmt                            # Format
-cargo clippy                         # Lint
+cargo test --all-targets             # All tests (unit + doc)
+cargo clippy --all-targets --all-features  # Lint
+cargo fmt --check                    # Format check (CI)
+RUST_LOG=info APP_ENVIRONMENT=local cargo run  # Local dev
+cargo build --profile release-dev --features http  # Fast CI build for Lambda
 ```
 
-## Docker
+## Project Structure
 
-Three Dockerfiles for three deployment targets:
+| Directory | What | Convention |
+|-----------|------|------------|
+| `src/handler/http/` | Axum route handlers + OpenAPI docs | One file per endpoint group; `openapi.rs` separate from `routes.rs` |
+| `src/handler/http/dto/` | API DTOs (wire shapes) | `From<domain::Model>` impls; injected config via params, not globals |
+| `src/handler/sqs/` | Lambda SQS event handler | |
+| `src/service/` | Business logic | Never touches HTTP types |
+| `src/service/models/` | Domain models | Split into per-type files (`file.rs`, `view_link.rs`, etc.) |
+| `src/repository/` | AWS SDK wrappers (trait + impl + mock) | Shared `SdkConfig` in `aws_config.rs`; all mocks in `mock.rs` |
+| `src/utils/` | Pure utility functions | |
+| `src/bin/` | Lambda entry points | `bootstrap_http.rs`, `bootstrap_sqs.rs` |
+| `terraform/` | Per-project IaC | Separate `prod/` and `dev/` dirs |
 
-| Dockerfile | Target | Binary |
-|------------|--------|--------|
-| `Dockerfile` | Local/ECS/Cloud Run | `from-the-hart-storage` (main.rs) |
-| `Dockerfile.lambda.http` | Lambda Function URL | `bootstrap_http` |
-| `Dockerfile.lambda.sqs` | Lambda SQS trigger | `bootstrap_sqs` |
+No `mod.rs` files anywhere — 2018 edition convention (`foo.rs` + `foo/` directory).
 
-## Feature Flags
+## Architecture
 
-- `http` — Axum HTTP server + OpenAPI docs + CloudFront signer
-- `sqs` — Lambda SQS handler + S3 repo + metadata service
-- Default: both enabled
-- Lambda builds: `--no-default-features --features http` or `--features sqs`
+### Metadata Extraction Pipeline
 
-## Architecture Patterns
+The SQS worker's process of enriching a File with content-derived metadata. Triggered by S3 `ObjectCreated:*` events.
 
-### Repository Pattern with Traits
+Currently handles Image files: extracts dimensions, EXIF data, and GPS coordinates. The extractor chain pattern (`MetadataExtractor` trait) allows adding support for Video, Audio, and Document types without changing existing code.
 
-All AWS service interactions use trait-based repositories for testability:
+Gated by the `sqs` feature flag. Runs after S3 object creation; writes the enriched File and its ViewLinks to DynamoDB.
 
-- `DynamoDbRepositoryTrait` — DynamoDB CRUD
-- `S3RepositoryTrait` — S3 object operations
-- `SsmRepositoryTrait` — Parameter Store access
-- Each has real impl + mock impl (`mock.rs`)
+## Conventions
 
-### AppState
+- **`required-features`** on every `[[bin]]` in Cargo.toml — prevents building without needed features.
+- **Domain types:** See [CONTEXT.md](./CONTEXT.md) for domain definitions of `ResourceId`, `ViewLink`, `File`, `Folder`, `MediaType`, `MediaMetadata`.
+- **`ResourceId` enum** instead of `is_folder: bool` — type-safe, impossible to have inconsistent state.
+- **ResourceId Encoding:** The domain `ResourceId` enum is flattened into two DTO fields for the wire: `resource_id: String` and `is_folder: bool`. If `is_folder` is `false`, `resource_id` is the bare file SHA-256 hash. If `is_folder` is `true`, `resource_id` is `"FOLDER#{folder_path}"`. The `is_folder` boolean is the authoritative type discriminator; the `FOLDER#` prefix on the string is a DynamoDB persistence detail leaked to the wire format (see TODO #9).
+- **Dependency injection** — `start_time`, `cloudfront_domain`, and `timezone` are injected via `AppState` or function params, never read from global `OnceLock`.
+- **`AppState`** holds all runtime dependencies as `Arc<dyn Trait>` with feature-gated `Option` fields. The `new()` constructor is called in each entry point (`main.rs`, `bootstrap_http.rs`, `bootstrap_sqs.rs`).
+- **Handler flattening** — handlers live directly under `handler/http/`, not nested under `handler/http/storage/`.
+- **ViewLink** — central domain type; see CONTEXT.md for definition. `for_owner()` and `for_owner_folder()` are the canonical constructors.
+- **Trailing-Slash Routing:** The wildcard `GET /storage/{user_id}/{*path}` uses path-based routing to distinguish folder listing from file retrieval:
+  - Path **ends with `/`** or is **empty** → Folder Listing
+  - Path **does NOT end with `/`** → File Retrieval
+  - Hitting a folder path without a trailing slash → 404
+  - This is a deliberate zero-guessing design: the client controls the interpretation by appending or omitting the trailing slash.
+- **DTO mapping** — DTOs implement `From<domain::Model>`. Constructors needing config take it as a parameter (e.g., `FileResponse::from_file(model, cloudfront_domain)`). DTO files include `#[cfg(test)]` roundtrip tests.
+- **OpenAPI docs** in dedicated `openapi.rs` — never inlined in route definitions.
+- **Config** uses `dotenvy` + custom `ConfigLoadError` — no `config` crate dependency.
+- **`RUST_LOG`** via `EnvFilter::try_from_default_env()` — never manually check the env var.
+- **Mock `VecDeque` pattern** — mocks queue responses with `pop_front()`. Strict mode panics on exhaustion (catches unconfigured calls). See `repository/mock.rs`.
+- **No `Arc<str>`** in models — use `String`. Simpler, and the sharing isn't worth it at this scale.
+- **Terraform** — use block `key_schema { ... }` syntax for DynamoDB GSIs, not inline `hash_key`/`range_key` shorthand.
+- Lint rules, edition, formatting, and `#[must_use]` are enforced by `Cargo.toml` and `rust-toolchain.toml` — see those files for the authoritative config.
 
-```rust
-pub struct AppState {
-    pub s3_repository: Option<Arc<dyn S3RepositoryTrait>>,       // #[cfg(feature = "sqs")]
-    pub dynamo_db_repository: Arc<dyn DynamoDbRepositoryTrait>,
-    pub metadata_service: Option<Arc<dyn MetadataServiceTrait>>,  // #[cfg(feature = "sqs")]
-    pub cloudfront_signer: Option<Arc<CloudFrontSigner>>,         // #[cfg(feature = "http")]
-}
-```
+## Boundaries
 
-Feature-gated fields allow single `AppState` used by both HTTP and SQS binaries.
-
-### Module Convention
-
-**Do NOT use `mod.rs`.** Use 2018 edition style:
-
-```
-src/
-├── lib.rs               # pub mod handler; pub mod repository; ...
-├── handler.rs            # pub mod http; pub mod sqs;
-├── handler/
-│   ├── http.rs           # pub mod storage;
-│   ├── http/
-│   │   └── storage.rs    # pub mod access; pub mod folder; ...
-│   │   └── storage/
-│   │       ├── access.rs
-│   │       ├── folder.rs
-│   │       └── list.rs
-│   └── sqs.rs
-│       └── sqs/
-│           └── worker.rs
-├── repository.rs         # pub mod dynamodb; pub mod s3; pub trait DynamoDbRepositoryTrait; ...
-├── repository/
-│   ├── mock.rs
-│   ├── dynamodb.rs
-│   ├── s3.rs
-│   └── ssm.rs
-└── service.rs            # pub mod access; pub mod file; pub mod models; ...
-```
-
-Pattern: `foo.rs` re-exports submodules from `foo/` directory. No `mod.rs` files.
-
-## Key Files
-
-```
-src/
-├── main.rs               # Local Docker entry (Tokio + TcpListener)
-├── lib.rs                # Module declarations
-├── config.rs             # Env var loading via OnceLock singleton
-├── state.rs              # AppState with feature-gated fields
-├── error.rs              # thiserror StorageError enum
-├── logging.rs            # tracing-subscriber init (JSON, panic hook)
-├── bin/
-│   ├── bootstrap_http.rs # Lambda HTTP entry
-│   └── bootstrap_sqs.rs  # Lambda SQS entry
-├── handler/
-│   ├── http/routes.rs    # Axum router + Aide OpenAPI docs
-│   └── sqs/worker.rs     # SQS event handler
-├── repository/           # Trait definitions + impls + mocks
-├── service/              # Business logic
-└── utils/                # gps, jwt, string, time helpers
-```
+- ✅ **Always:** Run `cargo test --all-targets` + `cargo clippy` before considering work done. Co-locate unit tests with source (`#[cfg(test)]`).
+- ⚠️ **Ask first:** Adding dependencies, changing DynamoDB schema, modifying OpenAPI doc structure, touching Terraform.
+- 🚫 **Never:** Commit `.env` files, use `mod.rs` files, create global `OnceLock` for runtime state, silently return defaults from exhausted mocks.
